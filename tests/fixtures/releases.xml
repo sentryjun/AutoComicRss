@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Local test releases</title>
+    <link>https://example.invalid/</link>
+    <description>Synthetic fixtures; no real media</description>
+    <item>
+      <guid>release-3</guid>
+      <title>[Group] Example - 03 [1080p]</title>
+      <enclosure url="magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" type="application/x-bittorrent" length="1"/>
+    </item>
+    <item>
+      <guid>release-3-other</guid>
+      <title>[Group] Example - 03v2 [1080p]</title>
+      <enclosure url="magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" type="application/x-bittorrent" length="1"/>
+    </item>
+    <item>
+      <guid>batch</guid>
+      <title>[Group] Example [01-12] [1080p]</title>
+      <enclosure url="magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc" type="application/x-bittorrent" length="1"/>
+    </item>
+    <item>
+      <guid>low-resolution</guid>
+      <title>[Group] Example - 04 [720p]</title>
+      <enclosure url="magnet:?xt=urn:btih:dddddddddddddddddddddddddddddddddddddddd" type="application/x-bittorrent" length="1"/>
+    </item>
+  </channel>
+</rss>

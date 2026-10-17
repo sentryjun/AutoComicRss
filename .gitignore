@@ -52,3 +52,10 @@ desktop.ini
 
 # For Cargo documentation
 /doc/
+
+# Local state and credentials
+/data/
+.env
+*.db
+*.db-shm
+*.db-wal
