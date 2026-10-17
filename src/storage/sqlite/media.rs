@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
+use super::{now, Store};
 use crate::{
     domain::DownloadJob,
     error::{Error, Result},
     media::*,
-    storage::{now, Store},
 };
 
 impl Store {

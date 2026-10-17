@@ -3,7 +3,7 @@
 use crate::{
     domain::{validate_http_url, SubscriptionInput},
     error::{Error, Result},
-    feeds::{bounded_body, website_get},
+    network::{bounded_body, website_get},
 };
 use reqwest::{Client, Url};
 use scraper::{Html, Selector};

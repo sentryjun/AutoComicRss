@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+mod media;
+
 use crate::{
     domain::*,
     error::{Error, Result},
@@ -17,7 +19,7 @@ pub struct Store {
     pub pool: SqlitePool,
 }
 
-pub fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

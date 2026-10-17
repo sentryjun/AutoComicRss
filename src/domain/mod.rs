@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
+//! Subscription, release and download job models.
+pub mod episode;
+
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 

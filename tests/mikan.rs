@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use actix_web::{dev::ServerHandle, test, web, App, HttpRequest, HttpResponse, HttpServer};
-use rust_project::{api, config::Config, service::Service, storage::Store};
+use autocomic_rss::{config::Config, http, service::Service, storage::Store};
 use serde_json::Value;
 use std::{net::TcpListener, sync::Arc, time::Duration};
 
@@ -80,7 +80,7 @@ async fn covers_use_an_application_url_and_details_remain_available_in_bounded_c
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let detail: Value = test::call_and_read_body_json(
@@ -127,7 +127,7 @@ async fn empty_results_are_distinct_from_challenges_or_changed_markup() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     for (query, status) in [
@@ -164,7 +164,7 @@ async fn group_candidate_can_be_previewed_and_saved_disabled_without_downloading
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let response = test::call_service(
@@ -243,7 +243,7 @@ async fn resolver_marks_keyword_scope_and_rejects_foreign_or_ambiguous_urls() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let response = test::call_service(
@@ -291,7 +291,7 @@ async fn search_discovers_distinct_series_and_encoded_keyword_rss_without_creati
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let response = test::call_service(

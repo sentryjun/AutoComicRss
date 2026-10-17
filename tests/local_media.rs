@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use actix_web::{test, web, App};
-use rust_project::{api, config::Config, service::Service, storage::Store};
+use autocomic_rss::{config::Config, http, service::Service, storage::Store};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
@@ -30,7 +30,7 @@ async fn directory_api_rejects_traversal_and_does_not_follow_links_outside_root(
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(service))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     for body in [

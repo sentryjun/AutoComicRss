@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use actix_web::{dev::ServerHandle, test, web, App, HttpRequest, HttpResponse, HttpServer};
-use rust_project::{
-    api,
+use autocomic_rss::{
     config::{Config, QbitConfig},
+    http,
     service::Service,
     storage::Store,
 };
@@ -56,7 +56,7 @@ async fn direct_exceptions_are_explicit_and_proxy_failure_never_falls_back() {
             poll_interval: Duration::from_secs(300),
             qbit: None,
             mikan_base_url: "http://mikan.invalid".into(),
-            website: rust_project::config::WebsiteConfig {
+            website: autocomic_rss::config::WebsiteConfig {
                 proxy_url: Some(proxy.clone()),
                 direct_hosts: direct_hosts.into(),
             },
@@ -67,7 +67,7 @@ async fn direct_exceptions_are_explicit_and_proxy_failure_never_falls_back() {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(Arc::new(service)))
-                .configure(api::configure),
+                .configure(http::configure),
         )
         .await;
         let mut redirect = reqwest::Url::parse("http://unresolvable.invalid/to-direct").unwrap();
@@ -107,7 +107,7 @@ async fn website_proxy_handles_auth_redirects_and_rss_while_downloader_stays_dir
         port: 8080,
         poll_interval: Duration::from_secs(300),
         mikan_base_url: "http://mikan.invalid".into(),
-        website: rust_project::config::WebsiteConfig {
+        website: autocomic_rss::config::WebsiteConfig {
             proxy_url: Some(proxy_url.into()),
             direct_hosts: String::new(),
         },
@@ -124,7 +124,7 @@ async fn website_proxy_handles_auth_redirects_and_rss_while_downloader_stays_dir
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(Arc::new(service)))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let search: Value = test::call_and_read_body_json(

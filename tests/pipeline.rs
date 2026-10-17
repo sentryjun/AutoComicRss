@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use actix_web::{dev::ServerHandle, web, App, HttpRequest, HttpResponse, HttpServer};
-use rust_project::{
-    api,
+use autocomic_rss::{
     config::{Config, QbitConfig},
     domain::{Decision, SubscriptionInput},
-    feeds,
+    http,
     service::Service,
+    sources::feeds,
     storage::Store,
 };
 use serde_json::{json, Value};
@@ -74,7 +74,7 @@ async fn add(
     let text = String::from_utf8_lossy(&body);
     let hash = if text.contains("name=\"torrents\"") {
         assert!(body.windows(TORRENT.len()).any(|w| w == TORRENT));
-        rust_project::downloader::torrent_hash(TORRENT).unwrap()
+        autocomic_rss::downloaders::torrent::torrent_hash(TORRENT).unwrap()
     } else {
         assert!(text.contains("name=\"urls\""));
         regex::Regex::new("urn:btih:([a-f0-9]{40})")
@@ -300,7 +300,7 @@ async fn api_validates_input_and_persists_crud() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(service.clone()))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let mut invalid = input("http://example.invalid", false);
@@ -369,7 +369,7 @@ async fn downloads_relative_torrent_enclosure_and_submits_original_bytes() {
     assert_eq!(
         jobs[0].info_hash.as_deref(),
         Some(
-            rust_project::downloader::torrent_hash(TORRENT)
+            autocomic_rss::downloaders::torrent::torrent_hash(TORRENT)
                 .unwrap()
                 .as_str()
         )
@@ -404,7 +404,7 @@ async fn switching_keeps_queued_jobs_and_retries_with_their_original_downloader_
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(service.clone()))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let instances: Value = test::call_and_read_body_json(
@@ -535,7 +535,7 @@ async fn switching_keeps_queued_jobs_and_retries_with_their_original_downloader_
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(recovered.clone()))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let status: Value = test::call_and_read_body_json(
@@ -614,7 +614,7 @@ async fn upgrading_without_original_config_requires_explicit_legacy_claim() {
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(service.clone()))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let status: Value = test::call_and_read_body_json(
@@ -721,7 +721,7 @@ async fn upgrading_without_original_config_requires_explicit_legacy_claim() {
 
 #[actix_web::test]
 async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snapshots() {
-    use rust_project::media::{DestinationInput, LocalKind, MappingInput};
+    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
     let (url, remote, server) = mock().await;
     let path =
         std::env::temp_dir().join(format!("destination-snapshots-{}.db", uuid::Uuid::new_v4()));
@@ -851,9 +851,9 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
     assert_eq!(remote.lock().unwrap().adds, 3);
     let other = recovered
         .store
-        .create_downloader(rust_project::domain::DownloaderInput {
+        .create_downloader(autocomic_rss::domain::DownloaderInput {
             name: "unmapped".into(),
-            kind: rust_project::domain::DownloaderKind::Qbittorrent,
+            kind: autocomic_rss::domain::DownloaderKind::Qbittorrent,
             connection: config("http://127.0.0.1:1").qbit.unwrap(),
         })
         .await
@@ -881,7 +881,7 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
 #[actix_web::test]
 async fn file_checks_keep_download_completion_and_last_success_when_storage_is_unavailable() {
     use actix_web::test;
-    use rust_project::media::{DestinationInput, LocalKind, MappingInput};
+    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
     let (url, remote, server) = mock().await;
     let directory = std::env::temp_dir().join(format!("local-media-{}", uuid::Uuid::new_v4()));
     let root = directory.join("media");
@@ -929,7 +929,7 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(service.clone()))
-            .configure(api::configure),
+            .configure(http::configure),
     )
     .await;
     let report_url = format!("/api/jobs/{}/files", job.id);
@@ -993,7 +993,7 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
 
 #[actix_web::test]
 async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missing() {
-    use rust_project::media::{DestinationInput, LocalKind, MappingInput};
+    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
     let (url, remote, server) = mock().await;
     let directory =
         std::env::temp_dir().join(format!("media-confinement-{}", uuid::Uuid::new_v4()));

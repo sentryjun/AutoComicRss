@@ -2,10 +2,10 @@
 use crate::{
     config::Config,
     domain::*,
-    downloader::{self, Qbit},
+    downloaders::{qbittorrent::Qbit, torrent},
     error::{Error, Result},
-    feeds,
     media::{self, FileReport, MediaFile},
+    sources::feeds,
     storage::Store,
 };
 use serde::Serialize;
@@ -18,7 +18,7 @@ use tokio::sync::{watch, Mutex};
 pub struct Service {
     pub store: Store,
     pub gate: Mutex<()>,
-    pub mikan: crate::mikan::Mikan,
+    pub mikan: crate::sources::mikan::Mikan,
     client: reqwest::Client,
 }
 
@@ -32,8 +32,8 @@ pub struct CycleReport {
 
 impl Service {
     pub async fn new(store: Store, config: &Config) -> Result<Self> {
-        let client = feeds::website_client(&config.website)?;
-        let mikan = crate::mikan::Mikan::new(client.clone(), &config.mikan_base_url)?;
+        let client = crate::network::website_client(&config.website)?;
+        let mikan = crate::sources::mikan::Mikan::new(client.clone(), &config.mikan_base_url)?;
         store.bootstrap_downloader(config.qbit.as_ref()).await?;
         Ok(Self {
             store,
@@ -180,7 +180,7 @@ impl Service {
             let result: Result<()> = async {
                 if job.info_hash.is_none() {
                     if !enabled { return Ok(()); }
-                    let prepared = downloader::prepare(&self.client, &job.download_url).await?;
+                    let prepared = torrent::prepare(&self.client, &job.download_url).await?;
                     self.store.prepare(&job.id, &prepared.hash, prepared.bytes.as_deref()).await?;
                     job.info_hash = Some(prepared.hash);
                 }
