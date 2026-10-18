@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //! Media destinations, path mappings and file presence reports.
+mod access;
 mod local;
 mod path;
+mod smb;
+pub(crate) use access::MediaAccess;
+pub use smb::{SmbConfig, SmbView};
 
 pub use local::{check_local, list_local};
 pub use path::{normalize_download_root, same_download_root, validate_relative};
@@ -14,43 +18,63 @@ use std::path::{Component, Path};
 #[serde(deny_unknown_fields)]
 pub struct DestinationInput {
     pub name: String,
-    pub kind: LocalKind,
+    pub kind: DestinationKind,
     pub root_path: String,
+    #[serde(default)]
+    pub smb: Option<SmbConfig>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum LocalKind {
+pub enum DestinationKind {
     Local,
+    Smb,
 }
 
 impl DestinationInput {
     pub fn validate(&mut self) -> Result<()> {
         self.name = self.name.trim().to_owned();
-        if self.name.is_empty()
-            || self.name.chars().count() > 100
-            || self.root_path.len() > 4096
-            || self.root_path.chars().any(char::is_control)
-            || !Path::new(&self.root_path).is_absolute()
-            || Path::new(&self.root_path)
-                .components()
-                .any(|c| matches!(c, Component::ParentDir))
-        {
+        if self.name.is_empty() || self.name.chars().count() > 100 {
             return Err(Error::Invalid(
-                "expected a name and an absolute local root without parent traversal".into(),
+                "expected a destination name of 1–100 characters".into(),
             ));
+        }
+        match self.kind {
+            DestinationKind::Local => {
+                if self.smb.is_some()
+                    || self.root_path.len() > 4096
+                    || self.root_path.chars().any(char::is_control)
+                    || !Path::new(&self.root_path).is_absolute()
+                    || Path::new(&self.root_path)
+                        .components()
+                        .any(|c| matches!(c, Component::ParentDir))
+                {
+                    return Err(Error::Invalid("expected an absolute local root without parent traversal or SMB credentials".into()));
+                }
+            }
+            DestinationKind::Smb => {
+                smb::validate_path(&self.root_path, true)?;
+                self.smb
+                    .as_mut()
+                    .ok_or_else(|| {
+                        Error::Invalid("SMB connection configuration is required".into())
+                    })?
+                    .validate()?;
+            }
         }
         Ok(())
     }
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 pub struct Destination {
     pub id: String,
     pub name: String,
     pub kind: String,
     pub root_path: String,
     pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smb: Option<SmbView>,
 }
 
 #[derive(Deserialize)]

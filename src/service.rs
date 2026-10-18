@@ -2,7 +2,7 @@
 use crate::{
     config::Config,
     domain::*,
-    downloaders::{qbittorrent::Qbit, torrent},
+    downloaders::{torrent, Downloader, RemoteState},
     error::{Error, Result},
     media::{self, FileReport, MediaFile},
     sources::feeds,
@@ -146,8 +146,9 @@ impl Service {
         let mut errors = Vec::new();
         for (id, jobs) in groups {
             let result = async {
-                let qbit = Qbit::new(self.store.downloader_config(&id).await?)?;
-                self.sync_instance(&qbit, jobs).await
+                let (kind, connection) = self.store.downloader_config(&id).await?;
+                let mut downloader = Downloader::new(kind, connection)?;
+                self.sync_instance(&mut downloader, jobs).await
             }
             .await;
             if let Err(error) = result {
@@ -160,11 +161,15 @@ impl Service {
         Ok(errors)
     }
 
-    async fn sync_instance(&self, qbit: &Qbit, jobs: Vec<DownloadJob>) -> Result<()> {
-        qbit.login().await?;
+    async fn sync_instance(
+        &self,
+        downloader: &mut Downloader,
+        jobs: Vec<DownloadJob>,
+    ) -> Result<()> {
+        downloader.connect().await?;
         // Never submit when querying the remote state fails.
-        let remote: HashMap<_, _> = qbit
-            .torrents()
+        let remote: HashMap<_, _> = downloader
+            .tasks()
             .await?
             .into_iter()
             .map(|torrent| (torrent.hash.to_ascii_lowercase(), torrent))
@@ -186,29 +191,27 @@ impl Service {
                 }
                 let hash = job.info_hash.as_ref().expect("prepared hash");
                 if let Some(torrent) = remote.get(hash) {
-                    if job.destination_id.is_some() && !job.download_save_path.as_deref().zip(torrent.save_path.as_deref())
+                    if job.download_save_path.is_some() && !job.download_save_path.as_deref().zip(torrent.save_path.as_deref())
                         .is_some_and(|(expected, actual)| media::same_download_root(expected, actual)) {
                         return Err(Error::Invalid("remote save path differs from the job snapshot; refusing to move or reuse this torrent".into()));
                     }
-                    if matches!(torrent.state.as_str(), "error" | "missingFiles") {
-                        return Err(Error::Invalid("qBittorrent reports an error or missing files; inspect the downloader before retrying".into()));
+                    if matches!(torrent.state, RemoteState::Failed) {
+                        return Err(Error::Invalid("downloader reports a local error or missing files; inspect the downloader before retrying".into()));
                     }
-                    let state = if torrent.progress >= 1.0 { "completed" }
-                        else if torrent.progress > 0.0 { "downloading" } else { "submitted" };
-                    self.store.state(&job.id, state).await?;
+                    self.store.state(&job.id, torrent.state.as_str()).await?;
                 } else if let Some(path) = added.get(hash) {
-                    if job.destination_id.is_some() && path != &job.download_save_path {
+                    if job.download_save_path.is_some() && path != &job.download_save_path {
                         return Err(Error::Invalid("this torrent was submitted to a different path; refusing to reuse it".into()));
                     }
                     self.store.state(&job.id, "submitted").await?;
                 } else if matches!(job.state.as_str(), "submitted" | "downloading") {
-                    // Respect removal in qBittorrent; recreating a task needs an explicit retry.
+                    // Respect removal in the original downloader; recreating a task needs an explicit retry.
                     self.store.state(&job.id, "missing").await?;
                 } else if enabled {
                     let bytes = self.store.torrent_bytes(&job.id).await?;
                     // Commit the intent before the external side effect.
                     self.store.state(&job.id, "submitting").await?;
-                    qbit.add(&job.download_url, bytes, job.download_save_path.as_deref()).await?;
+                    downloader.submit(hash, &job.download_url, bytes, job.download_save_path.as_deref()).await?;
                     added.insert(hash.clone(), job.download_save_path.clone());
                     self.store.state(&job.id, "submitted").await?;
                 }
@@ -237,10 +240,11 @@ impl Service {
             .downloader_id
             .as_ref()
             .ok_or_else(|| Error::Invalid("downloader ownership is unknown".into()))?;
-        let qbit = Qbit::new(self.store.downloader_config(owner).await?)?;
-        qbit.login().await?;
-        let torrent = qbit
-            .torrents()
+        let (kind, connection) = self.store.downloader_config(owner).await?;
+        let mut downloader = Downloader::new(kind, connection)?;
+        downloader.connect().await?;
+        let torrent = downloader
+            .tasks()
             .await?
             .into_iter()
             .find(|torrent| torrent.hash.eq_ignore_ascii_case(hash))
@@ -259,11 +263,11 @@ impl Service {
         }
         let mut files = Vec::new();
         let mut paths = HashSet::new();
-        for file in qbit
+        for file in downloader
             .files(hash)
             .await?
             .into_iter()
-            .filter(|file| file.priority != 0)
+            .filter(|file| file.wanted)
         {
             media::validate_relative(&file.name, false).map_err(|_| {
                 Error::Upstream("downloader returned an unsafe relative file path".into())
@@ -299,7 +303,7 @@ impl Service {
                 .await?;
             return self.store.file_report(id).await;
         };
-        let root = self.store.destination(destination).await?.root_path;
+        let access = self.store.media_access(destination).await?;
         let mut files = self.store.file_report(id).await?.files;
         if files.is_empty() {
             if job.info_hash.is_none() {
@@ -336,9 +340,7 @@ impl Service {
             }
             self.store.save_manifest(id, &files).await?;
         }
-        let files = tokio::task::spawn_blocking(move || media::check_local(&root, files))
-            .await
-            .map_err(|_| Error::Upstream("local file check failed".into()))?;
+        let files = access.check(files).await?;
         let status = if files.iter().any(|f| f.status == "unavailable") {
             "unavailable"
         } else if files.iter().any(|f| f.status == "absent") {

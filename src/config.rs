@@ -21,14 +21,17 @@ pub struct WebsiteConfig {
 // Deliberately omit Debug: these fields can contain credentials.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct QbitConfig {
+pub struct DownloaderConnection {
     pub url: String,
     pub username: String,
     pub password: String,
     pub save_path: String,
 }
 
-impl QbitConfig {
+/// Compatibility name for the initial QBIT_* environment configuration.
+pub type QbitConfig = DownloaderConnection;
+
+impl DownloaderConnection {
     pub fn validate(&mut self) -> Result<()> {
         self.url = self.url.trim().trim_end_matches('/').to_owned();
         crate::domain::validate_http_url(&self.url)?;

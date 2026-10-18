@@ -7,6 +7,7 @@ mod jobs;
 mod mikan;
 mod subscriptions;
 mod system;
+mod ui;
 
 use crate::service::Service;
 use actix_web::web;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 type State = web::Data<Arc<Service>>;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.configure(ui::configure);
     cfg.route("/health", web::get().to(system::health));
     cfg.service(
         web::scope("/api")

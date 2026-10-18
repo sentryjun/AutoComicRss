@@ -61,10 +61,8 @@ pub(super) async fn directory_entries(
     query: web::Query<DirectoryQuery>,
 ) -> Result<HttpResponse> {
     media::validate_relative(&query.path, true)?;
-    let root = state.store.destination(&id).await?.root_path;
+    let access = state.store.media_access(&id).await?;
     let path = query.into_inner().path;
-    let entries = tokio::task::spawn_blocking(move || media::list_local(&root, &path))
-        .await
-        .map_err(|_| Error::Upstream("local directory query failed".into()))?;
+    let entries = access.entries(&path).await?;
     Ok(HttpResponse::Ok().json(entries))
 }

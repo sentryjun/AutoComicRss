@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AutoComicRss · 自动追番</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <a class="brand" href="#discover"><span class="brand-mark" aria-hidden="true">A</span><span>AutoComic<span class="brand-sub">RSS LIBRARY</span></span></a>
+      <p class="nav-label">我的追番空间</p>
+      <nav aria-label="主导航">
+        <a href="#discover">发现番剧<span>01</span></a>
+        <a href="#subscriptions">我的订阅<span>02</span></a>
+        <a href="#jobs">下载任务<span>03</span></a>
+        <a href="#downloaders">下载器<span>04</span></a>
+        <a href="#storage">存储目的地<span>05</span></a>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span>让每一集如期而至<p>搜索、订阅、下载与文件核对。</p><small id="version">AutoComicRss</small></div>
+    </aside>
+    <main id="main" tabindex="-1">
+      <header class="topbar"><span>LIBRARY / <span id="section-label">发现番剧</span></span><button id="refresh" class="quiet" type="button">刷新状态 ↻</button></header>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="content" aria-label="管理内容"><p class="empty">正在连接服务…</p></section>
+    </main>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"><div class="dialog-head"><h2 id="dialog-title"></h2><button id="close-dialog" class="quiet" type="button" aria-label="关闭弹窗">关闭 ×</button></div><div id="dialog-error" role="alert" hidden></div><div id="dialog-content"></div></dialog>
+  <noscript>请启用 JavaScript 以使用管理页面。</noscript>
+</body>
+</html>

@@ -31,6 +31,32 @@ pub struct TorrentFile {
 }
 
 impl Qbit {
+    pub(crate) async fn tasks(&self) -> Result<Vec<super::RemoteTask>> {
+        self.torrents()
+            .await?
+            .into_iter()
+            .map(|task| {
+                if !task.progress.is_finite() || !(0.0..=1.0).contains(&task.progress) {
+                    return Err(Error::Upstream("invalid qBittorrent progress".into()));
+                }
+                let state = if matches!(task.state.as_str(), "error" | "missingFiles") {
+                    super::RemoteState::Failed
+                } else if task.progress >= 1.0 {
+                    super::RemoteState::Completed
+                } else if task.progress > 0.0 {
+                    super::RemoteState::Downloading
+                } else {
+                    super::RemoteState::Submitted
+                };
+                Ok(super::RemoteTask {
+                    hash: task.hash,
+                    state,
+                    save_path: task.save_path,
+                })
+            })
+            .collect()
+    }
+
     pub fn new(config: QbitConfig) -> Result<Self> {
         // Keep downloader cookies in a separate client from untrusted RSS hosts.
         let client = Client::builder()

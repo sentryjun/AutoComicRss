@@ -10,14 +10,16 @@ use actix_web::{web, App, HttpServer};
 use std::sync::Arc;
 
 pub async fn run(config: Config) -> std::io::Result<()> {
-    std::fs::create_dir_all("data")?;
+    if config.database_url.starts_with("sqlite:") {
+        std::fs::create_dir_all("data")?;
+    }
     let store = Store::open(&config.database_url)
         .await
-        .map_err(std::io::Error::other)?;
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
     let service = Arc::new(
         Service::new(store, &config)
             .await
-            .map_err(std::io::Error::other)?,
+            .map_err(|error| std::io::Error::other(error.to_string()))?,
     );
     let app_service = service.clone();
     let server = HttpServer::new(move || {

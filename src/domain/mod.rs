@@ -129,13 +129,30 @@ pub struct DownloadJob {
 pub struct DownloaderInput {
     pub name: String,
     pub kind: DownloaderKind,
-    pub connection: crate::config::QbitConfig,
+    pub connection: crate::config::DownloaderConnection,
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloaderKind {
     Qbittorrent,
+    Transmission,
+}
+
+impl DownloaderKind {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Qbittorrent => "qbittorrent",
+            Self::Transmission => "transmission",
+        }
+    }
+    pub(crate) fn from_stored(value: &str) -> Result<Self> {
+        match value {
+            "qbittorrent" => Ok(Self::Qbittorrent),
+            "transmission" => Ok(Self::Transmission),
+            _ => Err(Error::Invalid("unsupported stored downloader kind".into())),
+        }
+    }
 }
 
 impl DownloaderInput {

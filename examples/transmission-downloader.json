@@ -1,0 +1,10 @@
+{
+  "name": "Transmission",
+  "kind": "transmission",
+  "connection": {
+    "url": "http://127.0.0.1:9091/transmission/rpc",
+    "username": "your-rpc-user",
+    "password": "replace-with-rpc-password",
+    "save_path": "/downloads"
+  }
+}

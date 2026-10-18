@@ -15,6 +15,10 @@ use std::{
     time::Duration,
 };
 
+#[path = "support/transmission.rs"]
+mod transmission_fixture;
+use transmission_fixture::{configured_service, transmission_rpc};
+
 const FEED: &str = include_str!("fixtures/releases.xml");
 const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const TORRENT: &[u8] =
@@ -29,6 +33,16 @@ struct Remote {
     feed: Option<String>,
     files: Option<Vec<Value>>,
     save_paths: Vec<String>,
+    rpc_modern: bool,
+    rpc_requests: Vec<String>,
+    rpc_conflicts: usize,
+    rpc_always_conflict: bool,
+    rpc_auth_failure: bool,
+    rpc_duplicate_path: Option<String>,
+    rpc_id: u64,
+    rpc_rotate_on_add: bool,
+    rpc_rotated: bool,
+    rpc_fail_method: Option<String>,
 }
 
 async fn login() -> HttpResponse {
@@ -109,14 +123,21 @@ async fn add(
 }
 
 async fn mock() -> (String, Arc<Mutex<Remote>>, ServerHandle) {
+    mock_protocol("qbittorrent").await
+}
+
+async fn mock_protocol(protocol: &str) -> (String, Arc<Mutex<Remote>>, ServerHandle) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let remote = Arc::new(Mutex::new(Remote::default()));
+    remote.lock().unwrap().rpc_modern = protocol == "modern";
     let data = remote.clone();
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(data.clone()))
             .route("/feed", web::get().to(rss))
+            .route("/rpc/feed", web::get().to(rss))
+            .route("/rpc", web::post().to(transmission_rpc))
             .route(
                 "/release.torrent",
                 web::get().to(|| async { HttpResponse::Ok().body(TORRENT) }),
@@ -147,7 +168,15 @@ async fn mock() -> (String, Arc<Mutex<Remote>>, ServerHandle) {
     .run();
     let handle = server.handle();
     actix_web::rt::spawn(server);
-    (url, remote, handle)
+    (
+        if protocol == "qbittorrent" {
+            url
+        } else {
+            format!("{url}/rpc")
+        },
+        remote,
+        handle,
+    )
 }
 
 fn input(url: &str, enabled: bool) -> SubscriptionInput {
@@ -199,10 +228,16 @@ async fn parses_rss_enclosures_and_filter_reasons() {
 
 #[actix_web::test]
 async fn restart_and_repeated_scans_do_not_resubmit() {
-    let (url, remote, server) = mock().await;
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        restart_and_repeated_scans_do_not_resubmit_contract(protocol).await;
+    }
+}
+
+async fn restart_and_repeated_scans_do_not_resubmit_contract(protocol: &str) {
+    let (url, remote, server) = mock_protocol(protocol).await;
     let path = std::env::temp_dir().join(format!("rust-project-{}.db", uuid::Uuid::new_v4()));
     let db = format!("sqlite://{}", path.display());
-    let service = Service::new(Store::open(&db).await.unwrap(), &config(&url))
+    let service = configured_service(Store::open(&db).await.unwrap(), &config(&url))
         .await
         .unwrap();
     let sub = service.store.create(input(&url, false)).await.unwrap();
@@ -223,7 +258,8 @@ async fn restart_and_repeated_scans_do_not_resubmit() {
     service.store.pool.close().await;
     drop(service);
 
-    let recovered = Service::new(Store::open(&db).await.unwrap(), &config(&url))
+    remote.lock().unwrap().rpc_id = 812;
+    let recovered = configured_service(Store::open(&db).await.unwrap(), &config(&url))
         .await
         .unwrap();
     recovered.cycle().await.unwrap();
@@ -247,8 +283,17 @@ async fn restart_and_repeated_scans_do_not_resubmit() {
 
 #[actix_web::test]
 async fn reconciles_uncertain_submission_and_respects_disabled_subscriptions() {
-    let (url, remote, server) = mock().await;
-    let service = Service::new(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        reconciles_uncertain_submission_and_respects_disabled_subscriptions_contract(protocol)
+            .await;
+    }
+}
+
+async fn reconciles_uncertain_submission_and_respects_disabled_subscriptions_contract(
+    protocol: &str,
+) {
+    let (url, remote, server) = mock_protocol(protocol).await;
+    let service = configured_service(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
         .await
         .unwrap();
     let sub = service.store.create(input(&url, true)).await.unwrap();
@@ -275,7 +320,7 @@ async fn reconciles_uncertain_submission_and_respects_disabled_subscriptions() {
     assert_eq!(job.state, "submitting");
     assert!(job.last_error.is_some());
     sqlx::query("UPDATE download_jobs SET next_attempt_at = 0")
-        .execute(&service.store.pool)
+        .execute(service.store.pool.sqlite().unwrap())
         .await
         .unwrap();
     service.cycle().await.unwrap();
@@ -293,7 +338,7 @@ async fn api_validates_input_and_persists_crud() {
     let mut settings = config("http://127.0.0.1:1");
     settings.qbit = None;
     let service = Arc::new(
-        Service::new(Store::open("sqlite::memory:").await.unwrap(), &settings)
+        configured_service(Store::open("sqlite::memory:").await.unwrap(), &settings)
             .await
             .unwrap(),
     );
@@ -348,16 +393,22 @@ async fn api_validates_input_and_persists_crud() {
 
 #[actix_web::test]
 async fn downloads_relative_torrent_enclosure_and_submits_original_bytes() {
-    let (url, remote, server) = mock().await;
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        downloads_relative_torrent_enclosure_and_submits_original_bytes_contract(protocol).await;
+    }
+}
+
+async fn downloads_relative_torrent_enclosure_and_submits_original_bytes_contract(protocol: &str) {
+    let (url, remote, server) = mock_protocol(protocol).await;
     remote.lock().unwrap().feed = Some(
         r#"<rss version="2.0"><channel>
-        <title>Test</title><link>https://example.invalid</link><description>Test</description>
-        <item><guid>torrent</guid><title>Example - 05 [1080p]</title>
-        <enclosure url="/release.torrent" type="application/x-bittorrent" length="1"/>
-        </item></channel></rss>"#
+    <title>Test</title><link>https://example.invalid</link><description>Test</description>
+    <item><guid>torrent</guid><title>Example - 05 [1080p]</title>
+    <enclosure url="/release.torrent" type="application/x-bittorrent" length="1"/>
+    </item></channel></rss>"#
             .into(),
     );
-    let service = Service::new(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
+    let service = configured_service(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
         .await
         .unwrap();
     service.store.create(input(&url, true)).await.unwrap();
@@ -390,14 +441,24 @@ async fn downloads_relative_torrent_enclosure_and_submits_original_bytes() {
 
 #[actix_web::test]
 async fn switching_keeps_queued_jobs_and_retries_with_their_original_downloader_after_restart() {
+    for (protocol_a, protocol_b) in [
+        ("qbittorrent", "qbittorrent"),
+        ("qbittorrent", "legacy"),
+        ("modern", "qbittorrent"),
+    ] {
+        switching_contract(protocol_a, protocol_b).await;
+    }
+}
+
+async fn switching_contract(protocol_a: &str, protocol_b: &str) {
     use actix_web::test;
-    let (url_a, remote_a, server_a) = mock().await;
-    let (url_b, remote_b, server_b) = mock().await;
+    let (url_a, remote_a, server_a) = mock_protocol(protocol_a).await;
+    let (url_b, remote_b, server_b) = mock_protocol(protocol_b).await;
     let path = std::env::temp_dir().join(format!("downloader-switch-{}.db", uuid::Uuid::new_v4()));
     let db = format!("sqlite://{}", path.display());
     let settings = config(&url_a);
     let service = Arc::new(
-        Service::new(Store::open(&db).await.unwrap(), &settings)
+        configured_service(Store::open(&db).await.unwrap(), &settings)
             .await
             .unwrap(),
     );
@@ -416,9 +477,9 @@ async fn switching_keeps_queued_jobs_and_retries_with_their_original_downloader_
     .await;
     let id_a = instances[0]["id"].as_str().unwrap().to_owned();
     let response = test::call_service(&app, test::TestRequest::post().uri("/api/downloaders")
-        .set_json(json!({"name":"Downloader B", "kind":"qbittorrent", "connection":{
-            "url":url_b, "username":"test", "password":"B-private-password", "save_path":"/downloads"
-        }})).to_request()).await;
+    .set_json(json!({"name":"Downloader B", "kind":if protocol_b == "qbittorrent" { "qbittorrent" } else { "transmission" }, "connection":{
+        "url":url_b, "username":"test", "password":"B-private-password", "save_path":"/downloads"
+    }})).to_request()).await;
     assert_eq!(response.status(), 201);
     let body = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
     assert!(!body.contains("B-private-password"));
@@ -528,7 +589,7 @@ async fn switching_keeps_queued_jobs_and_retries_with_their_original_downloader_
 
     // Startup's original QBIT_URL must not overwrite the persisted global selection.
     let recovered = Arc::new(
-        Service::new(Store::open(&db).await.unwrap(), &settings)
+        configured_service(Store::open(&db).await.unwrap(), &settings)
             .await
             .unwrap(),
     );
@@ -602,7 +663,7 @@ async fn upgrading_without_original_config_requires_explicit_legacy_claim() {
     let mut settings = config(&url);
     settings.qbit = None;
     let service = Arc::new(
-        Service::new(
+        configured_service(
             Store::open(&format!("sqlite://{}", db_path.display()))
                 .await
                 .unwrap(),
@@ -721,13 +782,24 @@ async fn upgrading_without_original_config_requires_explicit_legacy_claim() {
 
 #[actix_web::test]
 async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snapshots() {
-    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
-    let (url, remote, server) = mock().await;
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        destination_and_mapping_changes_preserve_queued_paths_and_restart_snapshots_contract(
+            protocol,
+        )
+        .await;
+    }
+}
+
+async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snapshots_contract(
+    protocol: &str,
+) {
+    use autocomic_rss::media::{DestinationInput, DestinationKind, MappingInput};
+    let (url, remote, server) = mock_protocol(protocol).await;
     let path =
         std::env::temp_dir().join(format!("destination-snapshots-{}.db", uuid::Uuid::new_v4()));
     let db = format!("sqlite://{}", path.display());
     let settings = config(&url);
-    let service = Service::new(Store::open(&db).await.unwrap(), &settings)
+    let service = configured_service(Store::open(&db).await.unwrap(), &settings)
         .await
         .unwrap();
     let owner = service.store.active_downloader_id().await.unwrap().unwrap();
@@ -735,7 +807,8 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
         .store
         .create_destination(DestinationInput {
             name: "A".into(),
-            kind: LocalKind::Local,
+            kind: DestinationKind::Local,
+            smb: None,
             root_path: "/media/a".into(),
         })
         .await
@@ -744,7 +817,8 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
         .store
         .create_destination(DestinationInput {
             name: "B".into(),
-            kind: LocalKind::Local,
+            kind: DestinationKind::Local,
+            smb: None,
             root_path: "/media/b".into(),
         })
         .await
@@ -814,7 +888,7 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
     assert_eq!(revised.mapping_id.as_deref(), Some(v2.id.as_str()));
     service.store.pool.close().await;
     drop(service);
-    let recovered = Service::new(Store::open(&db).await.unwrap(), &settings)
+    let recovered = configured_service(Store::open(&db).await.unwrap(), &settings)
         .await
         .unwrap();
     assert_eq!(
@@ -880,9 +954,20 @@ async fn destination_and_mapping_changes_preserve_queued_paths_and_restart_snaps
 
 #[actix_web::test]
 async fn file_checks_keep_download_completion_and_last_success_when_storage_is_unavailable() {
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        file_checks_keep_download_completion_and_last_success_when_storage_is_unavailable_contract(
+            protocol,
+        )
+        .await;
+    }
+}
+
+async fn file_checks_keep_download_completion_and_last_success_when_storage_is_unavailable_contract(
+    protocol: &str,
+) {
     use actix_web::test;
-    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
-    let (url, remote, server) = mock().await;
+    use autocomic_rss::media::{DestinationInput, DestinationKind, MappingInput};
+    let (url, remote, server) = mock_protocol(protocol).await;
     let directory = std::env::temp_dir().join(format!("local-media-{}", uuid::Uuid::new_v4()));
     let root = directory.join("media");
     std::fs::create_dir_all(root.join("Series")).unwrap();
@@ -890,7 +975,7 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
     let db = format!("sqlite://{}", directory.join("app.db").display());
     let settings = config(&url);
     let service = Arc::new(
-        Service::new(Store::open(&db).await.unwrap(), &settings)
+        configured_service(Store::open(&db).await.unwrap(), &settings)
             .await
             .unwrap(),
     );
@@ -899,7 +984,8 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
         .store
         .create_destination(DestinationInput {
             name: "local".into(),
-            kind: LocalKind::Local,
+            kind: DestinationKind::Local,
+            smb: None,
             root_path: root.to_str().unwrap().into(),
         })
         .await
@@ -972,7 +1058,7 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
     drop(app);
     drop(service);
     server.stop(false).await;
-    let recovered = Service::new(Store::open(&db).await.unwrap(), &settings)
+    let recovered = configured_service(Store::open(&db).await.unwrap(), &settings)
         .await
         .unwrap();
     assert_eq!(
@@ -993,8 +1079,17 @@ async fn file_checks_keep_download_completion_and_last_success_when_storage_is_u
 
 #[actix_web::test]
 async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missing() {
-    use autocomic_rss::media::{DestinationInput, LocalKind, MappingInput};
-    let (url, remote, server) = mock().await;
+    for protocol in ["qbittorrent", "legacy", "modern"] {
+        unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missing_contract(protocol)
+            .await;
+    }
+}
+
+async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missing_contract(
+    protocol: &str,
+) {
+    use autocomic_rss::media::{DestinationInput, DestinationKind, MappingInput};
+    let (url, remote, server) = mock_protocol(protocol).await;
     let directory =
         std::env::temp_dir().join(format!("media-confinement-{}", uuid::Uuid::new_v4()));
     let root = directory.join("root");
@@ -1004,7 +1099,7 @@ async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missin
     std::fs::write(root.join("restricted/file.mkv"), b"abc").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(directory.join("outside"), root.join("escape")).unwrap();
-    let service = Service::new(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
+    let service = configured_service(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
         .await
         .unwrap();
     let owner = service.store.active_downloader_id().await.unwrap().unwrap();
@@ -1012,7 +1107,8 @@ async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missin
         .store
         .create_destination(DestinationInput {
             name: "local".into(),
-            kind: LocalKind::Local,
+            kind: DestinationKind::Local,
+            smb: None,
             root_path: root.to_str().unwrap().into(),
         })
         .await
@@ -1097,4 +1193,204 @@ async fn unsafe_downloader_paths_and_unreadable_files_are_unavailable_not_missin
     drop(service);
     std::fs::remove_dir_all(directory).unwrap();
     server.stop(false).await;
+}
+
+#[actix_web::test]
+async fn transmission_negotiation_duplicate_paths_and_error_states() {
+    for protocol in ["legacy", "modern"] {
+        let (url, remote, server) = mock_protocol(protocol).await;
+        let service =
+            configured_service(Store::open("sqlite::memory:").await.unwrap(), &config(&url))
+                .await
+                .unwrap();
+        service.store.create(input(&url, true)).await.unwrap();
+        remote.lock().unwrap().rpc_always_conflict = true;
+        let report = service.cycle().await.unwrap();
+        assert!(report.errors[0].contains("retry limit"));
+        assert_eq!(remote.lock().unwrap().rpc_conflicts, 3);
+        assert_eq!(remote.lock().unwrap().adds, 0);
+        remote.lock().unwrap().rpc_always_conflict = false;
+        remote.lock().unwrap().rpc_auth_failure = true;
+        let report = service.cycle().await.unwrap();
+        assert!(report.errors[0].contains("401"));
+        assert!(!report.errors[0].contains("private-server-detail"));
+        assert!(remote.lock().unwrap().rpc_requests.is_empty());
+        remote.lock().unwrap().rpc_auth_failure = false;
+        // A daemon-side RPC error never triggers protocol fallback or submission.
+        remote.lock().unwrap().rpc_fail_method = Some(
+            if protocol == "modern" {
+                "session_get"
+            } else {
+                "session-get"
+            }
+            .into(),
+        );
+        let report = service.cycle().await.unwrap();
+        assert!(report.errors[0].contains("rejected"));
+        assert!(!report.errors[0].contains("private-server-detail"));
+        assert_eq!(remote.lock().unwrap().adds, 0);
+        remote.lock().unwrap().rpc_fail_method = None;
+        remote.lock().unwrap().rpc_rotate_on_add = true;
+        remote.lock().unwrap().rpc_duplicate_path = Some("/elsewhere".into());
+        service.cycle().await.unwrap();
+        let job = service.store.jobs().await.unwrap().remove(0);
+        assert_eq!(job.state, "failed");
+        assert!(job.last_error.unwrap().contains("save path"));
+        assert_eq!(remote.lock().unwrap().adds, 1);
+        assert!(remote.lock().unwrap().rpc_rotated);
+        service.cycle().await.unwrap();
+        assert_eq!(remote.lock().unwrap().adds, 1);
+        // Explicit retry may adopt a concurrent duplicate only when its path agrees.
+        remote.lock().unwrap().torrents.clear();
+        remote.lock().unwrap().rpc_duplicate_path = Some("/downloads".into());
+        service.store.retry(&job.id).await.unwrap();
+        service.cycle().await.unwrap();
+        assert_eq!(service.store.job(&job.id).await.unwrap().state, "submitted");
+        assert_eq!(remote.lock().unwrap().adds, 2);
+        remote.lock().unwrap().torrents[0]["progress"] = json!(1.0);
+        remote.lock().unwrap().torrents[0]["metadata"] = json!(0.0);
+        service.cycle().await.unwrap();
+        assert_ne!(service.store.job(&job.id).await.unwrap().state, "completed");
+        remote.lock().unwrap().torrents[0]["error"] = json!(3);
+        service.cycle().await.unwrap();
+        assert_eq!(service.store.job(&job.id).await.unwrap().state, "failed");
+        service.store.retry(&job.id).await.unwrap();
+        remote.lock().unwrap().torrents[0]["error"] = json!(2); // Tracker error doesn't invalidate local completion.
+        remote.lock().unwrap().torrents[0]["metadata"] = json!(1.0);
+        service.cycle().await.unwrap();
+        assert_eq!(service.store.job(&job.id).await.unwrap().state, "completed");
+        assert_eq!(remote.lock().unwrap().adds, 2);
+        let calls = remote.lock().unwrap().rpc_requests.clone();
+        assert!(!calls
+            .iter()
+            .any(|m| m.contains("remove") || m.contains("location")));
+        server.stop(false).await;
+    }
+}
+
+#[actix_web::test]
+async fn transmission_control_is_independent_of_website_proxy_and_legacy_claims_are_rejected() {
+    for protocol in ["legacy", "modern"] {
+        let (url, remote, server) = mock_protocol(protocol).await;
+        let mut settings = config(&url);
+        settings.website.proxy_url = Some("http://127.0.0.1:1".into());
+        let service = configured_service(Store::open("sqlite::memory:").await.unwrap(), &settings)
+            .await
+            .unwrap();
+        let sub = service.store.create(input(&url, true)).await.unwrap();
+        let releases = feeds::parse(FEED.as_bytes(), &url.parse().unwrap(), &sub.input).unwrap();
+        service.store.record_scan(&sub, &releases).await.unwrap();
+        // Source requests fail via the unreachable website proxy; magnet submission goes directly to RPC.
+        let report = service.cycle().await.unwrap();
+        assert!(!report.errors.is_empty());
+        assert_eq!(remote.lock().unwrap().adds, 1);
+        let owner = service.store.active_downloader_id().await.unwrap().unwrap();
+        assert!(service.store.claim_legacy_jobs(&owner).await.is_err());
+        server.stop(false).await;
+    }
+}
+
+#[actix_web::test]
+#[ignore = "requires a dedicated MySQL 8.4 server; see tests/README.md"]
+async fn mysql_download_pipeline_switch_restart_and_files() {
+    use autocomic_rss::media::{DestinationInput, DestinationKind, MappingInput};
+    let base = std::env::var("AUTOCOMIC_TEST_MYSQL_URL").expect("dedicated test server required");
+    let admin = sqlx::MySqlPool::connect(&base).await.unwrap();
+    let name = format!("autocomic_test_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE DATABASE {name}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let mut db = reqwest::Url::parse(&base).unwrap();
+    db.set_path(&format!("/{name}"));
+    let (url_a, remote_a, server_a) = mock().await;
+    let (url_b, remote_b, server_b) = mock_protocol("modern").await;
+    let settings = config(&url_a);
+    let service = Service::new(Store::open(db.as_str()).await.unwrap(), &settings)
+        .await
+        .unwrap();
+    let a = service.store.active_downloader_id().await.unwrap().unwrap();
+    let directory = std::env::temp_dir().join(format!("mysql-files-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(directory.join("Series")).unwrap();
+    std::fs::write(directory.join("Series/ep03.mkv"), b"abc").unwrap();
+    let destination = service
+        .store
+        .create_destination(DestinationInput {
+            name: "media".into(),
+            kind: DestinationKind::Local,
+            root_path: directory.to_str().unwrap().into(),
+            smb: None,
+        })
+        .await
+        .unwrap();
+    service
+        .store
+        .create_mapping(
+            &destination.id,
+            MappingInput {
+                downloader_id: a.clone(),
+                download_root: "/downloads".into(),
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .store
+        .activate_destination(&destination.id)
+        .await
+        .unwrap();
+    let sub = service.store.create(input(&url_a, true)).await.unwrap();
+    service.scan_subscription(&sub.id).await.unwrap();
+    let b=service.store.create_downloader(serde_json::from_value(json!({"name":"B","kind":"transmission","connection":{"url":url_b,"username":"test","password":"test","save_path":"/downloads"}})).unwrap()).await.unwrap();
+    service
+        .store
+        .create_mapping(
+            &destination.id,
+            MappingInput {
+                downloader_id: b.id.clone(),
+                download_root: "/downloads".into(),
+            },
+        )
+        .await
+        .unwrap();
+    service.store.activate_downloader(&b.id).await.unwrap();
+    service.store.create(input(&url_a, true)).await.unwrap();
+    assert!(service.cycle().await.unwrap().errors.is_empty());
+    assert_eq!(remote_a.lock().unwrap().adds, 1);
+    assert_eq!(remote_b.lock().unwrap().adds, 1);
+    service.store.pool.close().await;
+    drop(service);
+    remote_a.lock().unwrap().torrents[0]["progress"] = json!(1.0);
+    remote_b.lock().unwrap().torrents[0]["progress"] = json!(1.0);
+    let recovered = Service::new(Store::open(db.as_str()).await.unwrap(), &settings)
+        .await
+        .unwrap();
+    assert_eq!(
+        recovered
+            .store
+            .active_downloader_id()
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(b.id.as_str())
+    );
+    assert!(recovered.cycle().await.unwrap().errors.is_empty());
+    for job in recovered.store.jobs().await.unwrap() {
+        assert_eq!(job.state, "completed");
+        assert_eq!(
+            recovered.check_job_files(&job.id).await.unwrap().status,
+            "present"
+        );
+    }
+    assert_eq!(remote_a.lock().unwrap().adds, 1);
+    assert_eq!(remote_b.lock().unwrap().adds, 1);
+    recovered.store.pool.close().await;
+    server_a.stop(false).await;
+    server_b.stop(false).await;
+    sqlx::query(&format!("DROP DATABASE {name}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+    std::fs::remove_dir_all(directory).unwrap();
 }
