@@ -20,6 +20,7 @@ async fn directory_api_rejects_traversal_and_does_not_follow_links_outside_root(
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,
+        bangumi_base_url: "https://api.bgm.tv".into(),
         mikan_base_url: "https://mikanani.me".into(),
         website: Default::default(),
     };

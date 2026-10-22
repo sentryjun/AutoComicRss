@@ -8,6 +8,7 @@ pub mod error;
 pub mod http;
 pub mod media;
 mod network;
+pub mod scraping;
 pub mod service;
 pub mod sources;
 pub mod storage;

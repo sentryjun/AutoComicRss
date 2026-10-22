@@ -18,6 +18,7 @@ fn config(database_url: String) -> Config {
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,
+        bangumi_base_url: "https://api.bgm.tv".into(),
         mikan_base_url: "https://mikanani.me".into(),
         website: Default::default(),
     }
@@ -157,7 +158,7 @@ async fn upgrade_contract(version: usize) {
     {
         std::fs::copy(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("migrations")
+                .join("migrations/sqlite")
                 .join(name),
             old_migrations.join(name),
         )

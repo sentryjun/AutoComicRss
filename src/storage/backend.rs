@@ -77,7 +77,7 @@ impl Pool {
     }
     pub(super) async fn initialize(&self) -> Result<()> {
         match self {
-            Self::Sqlite(pool) => sqlx::migrate!("./migrations").run(pool).await?,
+            Self::Sqlite(pool) => sqlx::migrate!("./migrations/sqlite").run(pool).await?,
             Self::MySql(pool) => sqlx::migrate!("./migrations/mysql").run(pool).await?,
         }
         Ok(())
@@ -100,7 +100,7 @@ impl Pool {
                 .connect_with(options)
                 .await?;
             if initialize {
-                sqlx::migrate!("./migrations").run(&pool).await?;
+                sqlx::migrate!("./migrations/sqlite").run(&pool).await?;
             }
             Ok(Self::Sqlite(pool))
         } else if url.starts_with("mysql:") {

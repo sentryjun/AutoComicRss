@@ -7,7 +7,7 @@ let viewVersion = 0;
 let lastActionControl;
 let dialogOpener;
 let data = { status: {}, downloaders: [], destinations: [] };
-const pages = { discover: '发现番剧', subscriptions: '我的订阅', jobs: '下载任务', downloaders: '下载器', storage: '存储目的地' };
+const pages = { discover: '发现番剧', subscriptions: '我的订阅', jobs: '下载任务', downloaders: '下载器', storage: '存储目的地', scraping: '刮削设置' };
 const labels = { queued: '等待提交', submitting: '正在提交', submitted: '已提交', downloading: '下载中', completed: '下载完成', missing: '远端任务缺失', failed: '下载失败', unchecked: '尚未核对', present: '文件存在', absent: '文件缺失', unavailable: '无法访问', ready: '可下载', filtered: '已过滤', needs_review: '待确认', already_queued: '已入队' };
 
 // All source titles, paths and errors are text nodes, never HTML.
@@ -177,7 +177,8 @@ function releaseList(releases) {
   if (!releases.length) list.append(empty('订阅源中暂时没有资源。'));
   for (const release of releases) {
     list.append(box('row', box('row-title', badge(release.decision), el('span', release.title)),
-      el('div', `集数：${release.episode ?? '无法识别'} · ${release.reason || ''}`, 'meta')));
+      el('div', `集数：${release.episode ?? '无法识别'} · ${release.reason || ''}`, 'meta'),
+      release.metadata ? note([release.metadata.source === 'llm' ? '大模型' : '正则', release.metadata.title, release.metadata.season ? `第 ${release.metadata.season} 季` : '', release.metadata.group, release.metadata.resolution].filter(Boolean).join(' · ')) : null));
   }
   return list;
 }
@@ -197,13 +198,14 @@ function subscriptionEditor(initial = {}, id) {
   const check = el('input'); check.type = 'checkbox'; check.name = 'enabled'; check.checked = initial.enabled ?? false;
   const checkLabel = el('label', null, 'check'); checkLabel.append(check, el('span', '启用自动追番'));
   form.append(checkLabel, note('先预览筛选结果再保存。启用后，后台会定时扫描并提交下载；暂停状态只保存订阅。预览不会创建任务。'));
+  const metadata = bangumiPicker(form, initial.bangumi_id);
   const previewArea = box('');
   let previewed = '';
   const payload = () => {
     const v = values(form);
-    return { title: v.title, rss_url: v.rss_url, season: Number(v.season), episode_offset: Number(v.episode_offset), include: v.include.split('\n').map(s => s.trim()).filter(Boolean), exclude: v.exclude.split('\n').map(s => s.trim()).filter(Boolean), enabled: check.checked };
+    return { title: v.title, rss_url: v.rss_url, season: Number(v.season), episode_offset: Number(v.episode_offset), include: v.include.split('\n').map(s => s.trim()).filter(Boolean), exclude: v.exclude.split('\n').map(s => s.trim()).filter(Boolean), enabled: check.checked, bangumi_id: metadata.value() };
   };
-  const signature = () => JSON.stringify({ ...payload(), enabled: false });
+  const signature = () => JSON.stringify({ ...payload(), enabled: false, bangumi_id: null });
   const save = submit(form, id ? '保存修改' : '保存订阅', async () => {
     if (!previewed || previewed !== signature()) throw new Error('规则已变化，请先重新预览。');
     await api(id ? `/subscriptions/${id}` : '/subscriptions', id ? 'PUT' : 'POST', payload());
@@ -221,6 +223,7 @@ function subscriptionEditor(initial = {}, id) {
     if (current !== signature()) { previewArea.replaceChildren(note('规则已变化，请重新预览。')); return; }
     previewed = current; save.disabled = false;
     previewArea.replaceChildren(note(`读取到 ${releases.length} 项资源；此操作没有创建下载任务。`), releaseList(releases));
+    if (!metadata.value()) void metadata.search(releases.find(r => r.metadata?.title)?.metadata.title || payload().title);
   });
   form.append(box('actions', preview, save), previewArea);
   body.append(form);
@@ -268,9 +271,10 @@ async function seriesDetail(id) {
   const detail = await modalApi(version, `/sources/mikan/series/${encodeURIComponent(id)}`);
   if (!detail || version !== dialogVersion) return;
   body.replaceChildren(el('h3', detail.title), note(detail.information.join('\n')),
-    button('订阅全部字幕组', () => subscriptionEditor({ title: detail.title, rss_url: detail.rss_url })));
+    button('订阅全部字幕组', () => subscriptionEditor({ title: detail.title, rss_url: detail.rss_url, bangumi_id: Number(detail.bangumi_id) || null })));
+  if (detail.bangumi_id) { const info = box('panel soft'); body.append(info); void loadBangumi(info, Number(detail.bangumi_id)); }
   body.append(note('选择一个字幕组，减少同一集的重复候选资源。'));
-  for (const group of detail.groups) body.append(box('row', el('h3', group.name), button('使用此字幕组', () => subscriptionEditor({ title: detail.title, rss_url: group.rss_url }))));
+  for (const group of detail.groups) body.append(box('row', el('h3', group.name), button('使用此字幕组', () => subscriptionEditor({ title: detail.title, rss_url: group.rss_url, bangumi_id: Number(detail.bangumi_id) || null }))));
   if (!detail.groups.length) body.append(empty('此番剧暂未发现字幕组，可使用番剧 RSS。'));
 }
 function resolveLink() {
@@ -289,13 +293,15 @@ async function subscriptions() {
     box('toolbar', el('span', `${subscriptions.length} 个订阅`, 'count'), button('添加 RSS 订阅', () => subscriptionEditor(), 'primary')));
   const grid = box('grid');
   for (const sub of subscriptions) {
-    grid.append(box('card', box('card-head', el('h3', sub.title), badge(sub.enabled ? '自动追番' : '已暂停')),
+    const info = box('');
+    if (sub.bangumi_id) void loadBangumi(info, sub.bangumi_id);
+    grid.append(box('card', info, box('card-head', el('h3', sub.title), badge(sub.enabled ? '自动追番' : '已暂停')),
       note(`第 ${sub.season} 季 · 集数偏移 ${sub.episode_offset}\n最后扫描：${time(sub.last_checked_at)}`),
       sub.last_error ? el('p', sub.last_error, 'meta') : null,
       box('actions', button('编辑规则', () => subscriptionEditor(sub, sub.id)),
         button(sub.enabled ? '暂停' : '启用', async () => {
-          const { title, rss_url, season, episode_offset, include, exclude } = sub;
-          await api(`/subscriptions/${sub.id}`, 'PUT', { title, rss_url, season, episode_offset, include, exclude, enabled: !sub.enabled });
+          const { title, rss_url, season, episode_offset, include, exclude, bangumi_id } = sub;
+          await api(`/subscriptions/${sub.id}`, 'PUT', { title, rss_url, season, episode_offset, include, exclude, bangumi_id, enabled: !sub.enabled });
           notify(sub.enabled ? '订阅已暂停。' : '订阅已启用，后台将自动扫描并提交下载。'); await navigate();
         }), button('预览', async () => {
           const body = modal('订阅资源预览'); const version = dialogVersion;
@@ -450,7 +456,76 @@ async function storage() {
   root.append(data.destinations.length ? grid : empty('尚未设置存储目的地。配置后，新任务将保存目的地和路径映射，用于文件存在核对。'));
   return root;
 }
-const views = { discover, subscriptions, jobs, downloaders, storage };
+function bangumiCard(subject) {
+  const card = box('row');
+  if (subject.cover_url) { const image = el('img', null, 'poster'); image.alt = `${subject.title} 封面`; image.loading = 'lazy'; image.src = subject.cover_url; card.append(image); }
+  const link = el('a', subject.title); link.href = subject.page_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+  card.append(link, note([subject.original_title, subject.date, subject.episode_count ? `${subject.episode_count} 集` : '', subject.rating != null ? `评分 ${subject.rating}` : ''].filter(Boolean).join(' · ')));
+  const detail = el('details'); detail.append(el('summary', '简介'), note(subject.summary || '暂无简介')); card.append(detail);
+  return card;
+}
+async function loadBangumi(area, id) {
+  area.replaceChildren(note('正在读取 Bangumi 资料…'));
+  try { area.replaceChildren(bangumiCard(await api(`/sources/bangumi/subjects/${id}`))); }
+  catch { area.replaceChildren(note('Bangumi 资料暂不可用，不影响订阅和下载。')); }
+}
+function bangumiPicker(form, initialId) {
+  const panel = el('fieldset'); panel.append(el('legend', 'Bangumi 资料（可选）'));
+  const id = field(panel, 'Bangumi 条目 ID', 'bangumi_id', initialId || '', 'number', false); id.min = 1; id.max = 2147483647;
+  const keyword = field(panel, 'Bangumi 搜索名称', 'bangumi_query', '', 'text', false); keyword.maxLength = 200;
+  const results = box(''); let version = 0;
+  const search = async query => {
+    if (!query?.trim()) return;
+    const current = ++version;
+    keyword.value = query.slice(0, 200); results.replaceChildren(note('正在查询 Bangumi 候选…'));
+    try {
+      const subjects = await api(`/sources/bangumi/search?q=${encodeURIComponent(keyword.value)}`);
+      if (current !== version) return;
+      results.replaceChildren(note(subjects.length ? '选择正确条目后保存订阅；不会自动采用第一个搜索结果。' : '未找到条目，可以修改名称重试或不关联。'));
+      for (const subject of subjects) results.append(box('panel soft', bangumiCard(subject), button('关联此条目', () => { version++; id.value = subject.id; results.replaceChildren(bangumiCard(subject)); })));
+    } catch { if (current === version) results.replaceChildren(note('Bangumi 查询失败，仍可保存订阅。')); }
+  };
+  const loadSelected = async () => {
+    if (!id.value || !id.reportValidity()) return; const current = ++version;
+    results.replaceChildren(note('正在读取 Bangumi 资料…'));
+    try { const subject = await api(`/sources/bangumi/subjects/${Number(id.value)}`); if (current === version) results.replaceChildren(bangumiCard(subject)); }
+    catch { if (current === version) results.replaceChildren(note('条目读取失败，请核对 ID；仍可保存订阅。')); }
+  };
+  panel.append(box('actions', button('搜索 Bangumi', () => search(keyword.value || form.elements.title.value)), button('读取条目 ID', loadSelected),
+    button('清除关联', () => { version++; id.value = ''; results.replaceChildren(); })), results);
+  id.addEventListener('input', () => { version++; results.replaceChildren(); });
+  form.append(panel);
+  if (initialId) void loadSelected();
+  return { value: () => id.value ? Number(id.value) : null, search };
+}
+async function scraping() {
+  const settings = await api('/scraping/settings');
+  const root = box('', intro('刮削设置', '全局选择资源标题的解析方式，新预览和扫描立即使用；已有下载任务保持原记录。'));
+  const form = el('form', null, 'panel');
+  select(form, '标题解析方式', 'mode', [['regex', '传统正则'], ['llm', 'OpenAI 兼容大模型']], settings.mode);
+  const url = field(form, 'API 基础地址', 'base_url', settings.base_url, 'url', false); url.placeholder = 'https://provider.example/v1';
+  field(form, '模型名称', 'model', settings.model, 'text', false);
+  const key = field(form, 'API Key（留空保留）', 'api_key', '', 'password', false);
+  const clear = el('input'); clear.type = 'checkbox'; const clearLabel = el('label', null, 'check'); clearLabel.append(clear, el('span', '清除已保存的 API Key'));
+  form.append(note(`API Key：${settings.api_key_configured ? '已配置' : '未配置'}。修改服务地址时请重新输入 Key，或勾选清除。`), clearLabel,
+    note('大模型模式会将资源标题发送给配置的服务，可能产生费用。每次预览或订阅扫描最多 20 次新请求、总计 60 秒，单次请求最多 30 秒；成功结果缓存 1 小时。失败或不确定的资源进入待确认，不会回退到正则。'),
+    submit(form, '保存刮削设置', async () => {
+      const v = values(form); const body = { mode: v.mode, base_url: v.base_url, model: v.model };
+      if (clear.checked) body.api_key = ''; else if (key.value) body.api_key = key.value;
+      await api('/scraping/settings', 'PUT', body); key.value = ''; notify('刮削设置已保存。'); await navigate();
+    }));
+  const test = el('form', null, 'panel'); field(test, '测试资源标题', 'title');
+  const season = field(test, '测试季数', 'season', 1, 'number'); season.min = 1; season.max = 999;
+  const offset = field(test, '测试集数偏移', 'episode_offset', 0, 'number'); offset.min = -10000; offset.max = 10000;
+  const result = box('');
+  test.append(note('测试使用已保存的配置；不会创建下载任务。'), submit(test, '测试标题解析', async () => {
+    const v = values(test); const parsed = await api('/scraping/test', 'POST', { title: v.title, season: Number(v.season), episode_offset: Number(v.episode_offset) });
+    const m = parsed.metadata;
+    result.replaceChildren(note([m.source === 'llm' ? '大模型' : '正则', m.title, m.group, m.resolution].filter(Boolean).join(' · ')), note(`集数：${parsed.episode ?? '待确认'}${parsed.reason ? ` · ${parsed.reason}` : ''}`));
+  }), result);
+  root.append(form, test); return root;
+}
+const views = { discover, subscriptions, jobs, downloaders, storage, scraping };
 $('#refresh').addEventListener('click', () => perform($('#refresh'), navigate));
 window.addEventListener('hashchange', () => { if (dialog.open) closeModal(); navigate(); });
 await navigate();

@@ -7,7 +7,11 @@ use crate::{
 use reqwest::{Client, Url};
 use sha1::{Digest, Sha1};
 
-pub async fn fetch(client: &Client, sub: &SubscriptionInput) -> Result<Vec<Release>> {
+/// Fetch and filter a feed without parsing titles; the service applies its selected parser.
+pub(crate) async fn fetch_candidates(
+    client: &Client,
+    sub: &SubscriptionInput,
+) -> Result<Vec<Release>> {
     let response = website_get(
         client,
         Url::parse(&sub.rss_url).map_err(|_| Error::Invalid("invalid RSS URL".into()))?,
@@ -15,10 +19,26 @@ pub async fn fetch(client: &Client, sub: &SubscriptionInput) -> Result<Vec<Relea
     .await?;
     let base = response.url().clone();
     let bytes = bounded_body(response, 4 * 1024 * 1024).await?;
-    parse(&bytes, &base, sub)
+    parse_raw(&bytes, &base, sub)
 }
 
 pub fn parse(bytes: &[u8], base: &Url, sub: &SubscriptionInput) -> Result<Vec<Release>> {
+    let mut releases = parse_raw(bytes, base, sub)?;
+    for release in releases
+        .iter_mut()
+        .filter(|r| r.decision == Decision::Ready)
+    {
+        match parser::episode(&release.title, sub.season, sub.episode_offset) {
+            Ok(ep) => release.episode = Some(ep),
+            Err(reason) => {
+                release.decision = Decision::NeedsReview;
+                release.reason = reason.into();
+            }
+        }
+    }
+    Ok(releases)
+}
+fn parse_raw(bytes: &[u8], base: &Url, sub: &SubscriptionInput) -> Result<Vec<Release>> {
     let feed = feed_rs::parser::Builder::new()
         .base_uri(Some(base.as_str()))
         .build()
@@ -64,6 +84,7 @@ pub fn parse(bytes: &[u8], base: &Url, sub: &SubscriptionInput) -> Result<Vec<Re
                 Sha1::digest(download_url.as_deref().unwrap_or(&entry.id).as_bytes())
             );
             let mut release = Release {
+                metadata: None,
                 key,
                 title,
                 download_url,
@@ -89,14 +110,6 @@ pub fn parse(bytes: &[u8], base: &Url, sub: &SubscriptionInput) -> Result<Vec<Re
             } else if release.download_url.is_none() {
                 release.decision = Decision::NeedsReview;
                 release.reason = "no supported torrent enclosure or magnet link".into();
-            } else {
-                match parser::episode(&release.title, sub.season, sub.episode_offset) {
-                    Ok(ep) => release.episode = Some(ep),
-                    Err(reason) => {
-                        release.decision = Decision::NeedsReview;
-                        release.reason = reason.into();
-                    }
-                }
             }
             release
         })

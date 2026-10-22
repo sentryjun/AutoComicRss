@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
-const repo = path.resolve(__dirname, '..');
+const repo = path.resolve(__dirname, '../..');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function eventually(action) {
   let error;
@@ -23,10 +23,23 @@ async function listen(server) { server.listen(0, '127.0.0.1'); await once(server
   let app, browser, logs = '';
   const tasks = new Map();
   let submissions = 0;
-  const rss = await fs.readFile(path.join(__dirname, 'fixtures/releases.xml'), 'utf8');
+  let llmCalls = 0;
+  const rss = await fs.readFile(path.join(__dirname, '../fixtures/releases.xml'), 'utf8');
   const external = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
+    if (url.pathname === '/v1/chat/completions') {
+      assert.equal(req.headers.authorization, 'Bearer fixture-llm-key');
+      let body = ''; for await (const chunk of req) body += chunk;
+      assert.equal(JSON.parse(body).model, 'fixture-model'); llmCalls++;
+      return json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ title: '星空列车', season: null, episode: 7, group: '测试字幕组', resolution: '1080p', kind: 'single' }) } }] });
+    }
+    if (url.pathname.startsWith('/v0/')) {
+      assert.equal(req.headers.authorization, undefined);
+      const subject = { id: 123, type: 2, name: 'Hoshizora', name_cn: '星空列车', summary: '<script>alert(1)</script>', date: '2026-01-01', total_episodes: 12, rating: { score: 8.2 }, images: { common: `http://${req.headers.host}/cover.png` } };
+      return json(url.pathname === '/v0/search/subjects' ? { data: [subject] } : subject);
+    }
+    if (url.pathname === '/cover.png') { res.setHeader('Content-Type', 'image/png'); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')); }
     if (url.pathname === '/Home/Search') {
       if (url.searchParams.get('searchstr') === 'empty') return res.end('<form action="/Home/Search"><input name="searchstr"></form><div class="central-container"><ul class="list-inline an-ul"></ul></div>');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -57,7 +70,7 @@ async function listen(server) { server.listen(0, '127.0.0.1'); await once(server
     const website = `http://127.0.0.1:${externalPort}`;
     const media = path.join(temp, 'media'); await fs.mkdir(media); await fs.mkdir(path.join(media, 'Season 01'));
     await fs.writeFile(path.join(media, 'episode.mkv'), 'test');
-    const env = { ...process.env, DATABASE_URL: `sqlite://${temp}/test.db`, APP_PORT: String(port), POLL_INTERVAL_SECONDS: '3600', MIKAN_BASE_URL: website, QBIT_URL: '', WEBSITE_PROXY_URL: '', WEBSITE_DIRECT_HOSTS: '' };
+    const env = { ...process.env, DATABASE_URL: `sqlite://${temp}/test.db`, APP_PORT: String(port), POLL_INTERVAL_SECONDS: '3600', MIKAN_BASE_URL: website, BANGUMI_BASE_URL: website, QBIT_URL: '', WEBSITE_PROXY_URL: '', WEBSITE_DIRECT_HOSTS: '' };
     app = spawn(path.join(repo, 'target/debug/autocomic-rss'), [], { cwd: temp, env, stdio: ['ignore', 'pipe', 'pipe'] });
     app.stdout.on('data', chunk => { logs += chunk; }); app.stderr.on('data', chunk => { logs += chunk; });
     await eventually(async () => assert.equal((await fetch(`${base}/health`)).status, 200));
@@ -166,9 +179,42 @@ async function listen(server) { server.listen(0, '127.0.0.1'); await once(server
     await click('解析蜜柑链接'); await page.getByLabel('番剧页、字幕组或 RSS 链接').fill(`${website}/Home/Bangumi/101`);
     await click('解析链接'); await click('使用这个 RSS'); await page.getByLabel('番剧名称').waitFor(); await close();
 
+    await nav('刮削设置');
+    await page.getByLabel('标题解析方式').selectOption('llm');
+    await page.getByLabel('API 基础地址').fill(`${website}/v1`);
+    await page.getByLabel('模型名称').fill('fixture-model');
+    await page.getByLabel('API Key（留空保留）', { exact: true }).fill('fixture-llm-key');
+    await click('保存刮削设置'); await notice('刮削设置已保存');
+    await eventually(async () => assert.equal(await page.getByLabel('API Key（留空保留）', { exact: true }).inputValue(), ''));
+    assert.equal((await api('/scraping/settings')).api_key_configured, true);
+    assert.ok(!JSON.stringify(await api('/scraping/settings')).includes('fixture-llm-key'));
+    await page.getByLabel('测试资源标题').fill('[Group] Example [03]');
+    await click('测试标题解析'); await eventually(async () => assert.ok((await page.locator('#content').innerText()).includes('集数：7')));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'autocomic-ui-scraping.png'), fullPage: true });
+    assert.equal(llmCalls, 1); assert.equal((await api('/jobs')).length, 1);
+    await page.getByLabel('标题解析方式').selectOption('regex'); await click('保存刮削设置'); await notice('刮削设置已保存');
+    await eventually(async () => assert.equal((await api('/scraping/settings')).mode, 'regex'));
+    assert.equal((await api('/scraping/settings')).api_key_configured, true); // blank input preserves key
+    await page.getByLabel('清除已保存的 API Key').check(); await click('保存刮削设置');
+    await eventually(async () => assert.equal((await api('/scraping/settings')).api_key_configured, false));
+
+    await nav('我的订阅'); await click('编辑规则'); await click('预览资源');
+    await click('关联此条目'); assert.equal(await page.getByLabel('Bangumi 条目 ID').inputValue(), '123');
+    await click('保存修改'); await modal.waitFor({ state: 'hidden' });
+    await eventually(async () => assert.equal((await api('/subscriptions'))[0].bangumi_id, 123));
+    const cover = page.getByRole('img', { name: '星空列车 封面' });
+    await cover.waitFor(); await eventually(async () => assert.ok(await cover.evaluate(image => image.complete && image.naturalWidth > 0)));
+    await page.getByText('简介', { exact: true }).click();
+    assert.ok((await page.locator('#content').innerText()).includes('<script>alert(1)</script>'));
+    assert.equal(await page.locator('#content script').count(), 0);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'autocomic-ui-bangumi.png'), fullPage: true });
+    assert.equal((await api('/jobs'))[0].episode, frozen.episode);
+    assert.ok(!logs.includes('fixture-llm-key'));
+
     // Server failure is recoverable and shown as text; no automatic mutation retry.
     await nav('我的订阅'); await page.route('**/api/subscriptions/*', route => route.fulfill({ status: 409, json: { error: 'busy' } }));
     await click('暂停'); await notice('稍后重试'); await page.unroute('**/api/subscriptions/*'); await click('暂停'); await notice('已暂停');
+    assert.equal((await api('/subscriptions'))[0].bangumi_id, 123);
     await page.setViewportSize({ width: 390, height: 844 }); await nav('发现番剧');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await page.screenshot({ path: path.join(os.tmpdir(), 'autocomic-ui-mobile.png'), fullPage: true });
@@ -176,7 +222,7 @@ async function listen(server) { server.listen(0, '127.0.0.1'); await once(server
     await eventually(async () => assert.equal(await button('手动添加 RSS').evaluate(node => node === document.activeElement), true));
     assert.equal(await page.locator('video,audio').count(), 0);
     assert.deepEqual(errors, []);
-    console.log('PASS: discovery, preview, subscription, downloaders, local/SMB configuration, mappings, file states, frozen ownership, errors, XSS text, stale dialogs, mobile and keyboard.');
+    console.log('PASS: regex/LLM settings, secret retention/clearing, Bangumi association/cover, discovery, preview, subscription, downloaders, local/SMB configuration, mappings, file states, frozen ownership, errors, XSS text, stale dialogs, mobile and keyboard.');
     console.log(`Screenshots: ${path.join(os.tmpdir(), 'autocomic-ui-desktop.png')}, ${path.join(os.tmpdir(), 'autocomic-ui-mobile.png')}`);
   } catch (error) { console.error(logs.slice(-4000)); throw error; }
   finally {

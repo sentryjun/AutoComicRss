@@ -10,6 +10,7 @@ pub struct Config {
     pub poll_interval: Duration,
     pub qbit: Option<QbitConfig>,
     pub mikan_base_url: String,
+    pub bangumi_base_url: String,
     pub website: WebsiteConfig,
 }
 
@@ -19,43 +20,9 @@ pub struct WebsiteConfig {
     pub direct_hosts: String,
 }
 
-// Deliberately omit Debug: these fields can contain credentials.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DownloaderConnection {
-    pub url: String,
-    pub username: String,
-    pub password: String,
-    pub save_path: String,
-}
-
+pub use crate::domain::DownloaderConnection;
 /// Compatibility name for the initial QBIT_* environment configuration.
 pub type QbitConfig = DownloaderConnection;
-
-impl DownloaderConnection {
-    pub fn validate(&mut self) -> Result<()> {
-        self.url = self.url.trim().trim_end_matches('/').to_owned();
-        crate::domain::validate_http_url(&self.url)?;
-        let url = reqwest::Url::parse(&self.url).expect("validated URL");
-        if url.query().is_some() || url.fragment().is_some() {
-            return Err(Error::Invalid(
-                "downloader URL cannot contain query parameters or a fragment".into(),
-            ));
-        }
-        self.url = url.to_string().trim_end_matches('/').to_owned();
-        if self.username.len() > 1024
-            || self.password.len() > 4096
-            || self.save_path.trim().is_empty()
-            || self.save_path.len() > 4096
-            || self.save_path.chars().any(char::is_control)
-        {
-            return Err(Error::Invalid(
-                "invalid downloader credentials or save path".into(),
-            ));
-        }
-        Ok(())
-    }
-}
 
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -101,6 +68,8 @@ impl Config {
             port,
             poll_interval: Duration::from_secs(seconds),
             qbit,
+            bangumi_base_url: env::var("BANGUMI_BASE_URL")
+                .unwrap_or_else(|_| "https://api.bgm.tv".into()),
             mikan_base_url: env::var("MIKAN_BASE_URL")
                 .unwrap_or_else(|_| "https://mikanani.me".into()),
             website: WebsiteConfig {

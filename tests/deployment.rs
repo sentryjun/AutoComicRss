@@ -12,6 +12,7 @@ async fn readiness_checks_database_without_waiting_for_the_scan_gate() {
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,
+        bangumi_base_url: "https://api.bgm.tv".into(),
         mikan_base_url: "https://example.invalid".into(),
         website: Default::default(),
     };

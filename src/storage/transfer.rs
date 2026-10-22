@@ -19,6 +19,10 @@ struct Table {
 // Stable application columns only: backend migration ledgers, generated digests and locks stay local.
 const TABLES: &[Table] = &[
     Table {
+        name: "scraping_settings",
+        columns: &[("singleton", N), ("config", T)],
+    },
+    Table {
         name: "subscriptions",
         columns: &[
             ("rowid", N),
@@ -187,7 +191,7 @@ async fn read_snapshot(tx: &mut Transaction) -> Result<Snapshot> {
 async fn validate_schema(pool: &Pool) -> Result<()> {
     let ledger: Vec<(i64, bool, Vec<u8>)> = db_query!(pool, query_as, "SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version"; []; fetch_all)?;
     let migrator = match pool {
-        Pool::Sqlite(_) => sqlx::migrate!("./migrations"),
+        Pool::Sqlite(_) => sqlx::migrate!("./migrations/sqlite"),
         Pool::MySql(_) => sqlx::migrate!("./migrations/mysql"),
     };
     if ledger.len() != migrator.iter().count()

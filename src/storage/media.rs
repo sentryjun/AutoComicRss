@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-use super::{backend::db_query, operations::now, Store};
+use super::{backend::db_query, now, Store};
 use crate::{
     domain::DownloadJob,
     error::{Error, Result},

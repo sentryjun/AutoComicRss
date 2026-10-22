@@ -56,7 +56,7 @@ AUTOCOMIC_SMB_TEST_PYTHON=/tmp/autocomic-smb-venv/bin/python \
 cargo build --locked
 npm install --prefix /tmp/autocomic-ui-tools playwright@1.62.1
 /tmp/autocomic-ui-tools/node_modules/.bin/playwright install chromium
-NODE_PATH=/tmp/autocomic-ui-tools/node_modules node tests/ui.cjs
+NODE_PATH=/tmp/autocomic-ui-tools/node_modules node tests/browser/ui.cjs
 ```
 
 如已有 Chromium，可通过 `AUTOCOMIC_CHROMIUM` 指定其可执行文件。测试启动真实 Rust HTTP 服务、临时 SQLite 和目录，模拟外部蜜柑网站及 qBittorrent；使用随机回环端口，不访问真实网站、下载器或 NAS。结束后关闭服务并删除临时数据库，桌面和手机截图保存在系统临时目录。
@@ -67,10 +67,10 @@ NODE_PATH=/tmp/autocomic-ui-tools/node_modules node tests/ui.cjs
 
 ```sh
 cargo build --locked
-python3 tests/deployment_config.py
-python3 tests/deployment_proxy.py
+python3 tests/deployment/compose_config.py
+python3 tests/deployment/proxy.py
 docker build -t autocomic-rss:smoke .
-python3 tests/container_smoke.py autocomic-rss:smoke
+python3 tests/deployment/container_smoke.py autocomic-rss:smoke
 ```
 
 配置测试使用 Docker Compose，无需 daemon，覆盖八种组合、HTTPS 模式移除后端端口、只读挂载、MySQL 启动顺序、密码哈希插值及缺少认证参数时拒绝启动。可设置 `COMPOSE_BIN` 为独立 Compose 可执行文件。
@@ -78,3 +78,9 @@ python3 tests/container_smoke.py autocomic-rss:smoke
 代理测试需要 Caddy（可通过 `CADDY_BIN` 指定），启动真实 Rust 与 Caddy 回环 HTTP 服务，验证全站认证、跨站写入拒绝、凭据不转发、停机与 SQLite 恢复。它不申请公网证书或修改系统信任库。
 
 镜像测试需要运行中的 Docker，检查新建/重建/恢复、健康检查、非 root、只读媒体与持久卷，并清理自身随机命名资源。本轮本机没有 Docker daemon，此项尚未执行；Compose 2.39.4 和原生 Caddy 2.10.2 测试已通过。
+
+## 标题刮削与 Bangumi
+
+`cargo test --test metadata` 启动本机模拟 OpenAI 兼容服务和 Bangumi API，验证正则/大模型互斥、过滤后调用、请求预算、缓存/配置失效、结构校验、错误脱敏、重定向拒绝、Key 保留与清除、重启持久化、旧任务去重，以及 Bangumi 搜索/封面/关联、缓存、故障隔离、网站代理和大模型连接隔离。共享数据库契约及离线迁移测试包含刮削配置和 Key；不使用真实 API Key 或调用计费服务。
+
+浏览器回归同时覆盖刮削设置、标题测试、Key 不回显、Bangumi 候选选择与保存、封面加载、简介作为文本展示，以及启停订阅时保留资料关联。

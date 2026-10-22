@@ -195,6 +195,7 @@ async fn group_candidate_can_be_previewed_and_saved_disabled_without_downloading
     assert_eq!(candidate["series_id"], "101");
     assert_eq!(candidate["group_id"], "12");
     assert_eq!(candidate["subscription"]["enabled"], false);
+    assert_eq!(candidate["subscription"]["bangumi_id"], 400602);
     let preview: Value = test::call_and_read_body_json(
         &app,
         test::TestRequest::post()
@@ -227,6 +228,7 @@ fn config(base: &str) -> Config {
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,
+        bangumi_base_url: "https://api.bgm.tv".into(),
         mikan_base_url: base.into(),
         website: Default::default(),
     }

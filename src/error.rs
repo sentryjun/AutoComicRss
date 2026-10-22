@@ -10,7 +10,7 @@ pub enum Error {
     NotFound,
     #[error("a scan or download synchronization is already running")]
     Busy,
-    #[error("too many Mikan requests; retry shortly")]
+    #[error("too many source requests; retry shortly")]
     SourceBusy,
     #[error("{0}")]
     Upstream(String),

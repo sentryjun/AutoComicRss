@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = shlex.split(os.environ.get('COMPOSE_BIN', 'docker compose'))
 HASH = '$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG'
 with tempfile.TemporaryDirectory(prefix='autocomic-compose-') as directory:

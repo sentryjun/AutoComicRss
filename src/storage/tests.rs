@@ -4,8 +4,23 @@ use crate::{domain::*, media::*};
 use serde_json::json;
 
 async fn contract(store: &Store) {
+    let settings = store
+        .save_scraping_settings(crate::scraping::SettingsInput {
+            mode: crate::scraping::Mode::Llm,
+            base_url: "https://llm.invalid/v1".into(),
+            model: "fixture".into(),
+            api_key: Some("migration-fixture-key".into()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(settings.view()["api_key_configured"], true);
+    assert!(!settings
+        .view()
+        .to_string()
+        .contains("migration-fixture-key"));
     let sub = store
         .create(SubscriptionInput {
+            bangumi_id: None,
             title: "动画 😺".into(),
             rss_url: "https://example.invalid/feed".into(),
             season: 1,
@@ -49,6 +64,7 @@ async fn contract(store: &Store) {
         .unwrap();
     store.activate_destination(&destination.id).await.unwrap();
     let release = Release {
+        metadata: None,
         key: format!("Case-Sensitive-{}", "x".repeat(9000)),
         title: "Example - 01 😺".into(),
         download_url: Some("magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()),
@@ -285,6 +301,10 @@ async fn offline_roundtrip_and_atomic_failure() {
     let configs_source:Vec<String>=db_query!(source.pool,query_scalar,"SELECT config FROM downloader_instances ORDER BY rowid";[];fetch_all).unwrap();
     let configs_target:Vec<String>=db_query!(roundtrip.pool,query_scalar,"SELECT config FROM downloader_instances ORDER BY rowid";[];fetch_all).unwrap();
     assert_eq!(configs_source, configs_target);
+    assert_eq!(
+        serde_json::to_value(source.scraping_settings().await.unwrap()).unwrap(),
+        serde_json::to_value(roundtrip.scraping_settings().await.unwrap()).unwrap()
+    );
     roundtrip.pool.close().await;
     // An unrelated target schema must be rejected before application DDL is run.
     let unrelated = MysqlFixture::new().await;

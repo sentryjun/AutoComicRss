@@ -370,7 +370,7 @@ impl Mikan {
         Ok(Candidate {
             source_id: "mikan", scope: if group.is_some() { "group" } else { "series" },
             series_id: Some(id), group_id: group, page_url: detail.page_url, rss_url: rss_url.clone(),
-            subscription: Some(SubscriptionInput { title: detail.title, rss_url, season: 1, episode_offset: 0,
+            subscription: Some(SubscriptionInput { bangumi_id: detail.bangumi_id.as_deref().and_then(|v|v.parse().ok()), title: detail.title, rss_url, season: 1, episode_offset: 0,
                 include: Vec::new(), exclude: Vec::new(), enabled: false }),
             warnings: vec!["Confirm season, episode offset and filters in preview before enabling; season 1 is a default, not inferred metadata."],
         })

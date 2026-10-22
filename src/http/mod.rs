@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //! HTTP routes and request/response translation.
+mod bangumi;
 mod destinations;
 mod downloaders;
 mod error;
 mod jobs;
 mod mikan;
+mod scraping;
 mod subscriptions;
 mod system;
 mod ui;
@@ -21,6 +23,18 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("/ready", web::get().to(system::ready));
     cfg.service(
         web::scope("/api")
+            .route("/scraping/settings", web::get().to(scraping::settings))
+            .route("/scraping/settings", web::put().to(scraping::save_settings))
+            .route("/scraping/test", web::post().to(scraping::test_title))
+            .route("/sources/bangumi/search", web::get().to(bangumi::search))
+            .route(
+                "/sources/bangumi/subjects/{id}",
+                web::get().to(bangumi::subject),
+            )
+            .route(
+                "/sources/bangumi/subjects/{id}/cover",
+                web::get().to(bangumi::cover),
+            )
             .route("/sources/mikan/search", web::get().to(mikan::mikan_search))
             .route(
                 "/sources/mikan/series/{id}",

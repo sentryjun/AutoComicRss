@@ -36,6 +36,7 @@ async fn migration_cli_copies_and_rejects_populated_target() {
     let source = Store::open(&source_url).await.unwrap();
     let sub = source
         .create(SubscriptionInput {
+            bangumi_id: None,
             title: "迁移验证".into(),
             rss_url: "https://example.invalid/rss".into(),
             season: 1,

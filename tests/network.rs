@@ -56,6 +56,7 @@ async fn direct_exceptions_are_explicit_and_proxy_failure_never_falls_back() {
             port: 8080,
             poll_interval: Duration::from_secs(300),
             qbit: None,
+            bangumi_base_url: "https://api.bgm.tv".into(),
             mikan_base_url: "http://mikan.invalid".into(),
             website: autocomic_rss::config::WebsiteConfig {
                 proxy_url: Some(proxy.clone()),
@@ -108,6 +109,7 @@ async fn website_proxy_handles_auth_redirects_and_rss_while_downloader_stays_dir
         host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
+        bangumi_base_url: "https://api.bgm.tv".into(),
         mikan_base_url: "http://mikan.invalid".into(),
         website: autocomic_rss::config::WebsiteConfig {
             proxy_url: Some(proxy_url.into()),

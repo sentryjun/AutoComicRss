@@ -177,9 +177,19 @@ dc run --rm --no-deps -T \
 
 ```sh
 docker build -t autocomic-rss:smoke .
-python3 tests/container_smoke.py autocomic-rss:smoke
+python3 tests/deployment/container_smoke.py autocomic-rss:smoke
 ```
 
 脚本创建随机命名的临时容器/卷，验证健康检查、非 root、只读挂载、重建持久化、退出和卷备份恢复，最后清理自身资源。实际 NAS、SMB3、真实下载器及公网域名证书签发仍需目标环境联调。
 
 配置依据：[Compose 合并规则](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/)、[持久卷](https://docs.docker.com/engine/storage/volumes/)、[环境变量插值](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)、[Caddy 密码认证](https://caddyserver.com/docs/caddyfile/directives/basic_auth)。
+
+## 标题刮削与 Bangumi
+
+在「刮削设置」全局选择正则或大模型。大模型填写 API 基础地址（例如 `https://provider.example/v1`）、模型名和 API Key；应用调用该地址下的 `/chat/completions`，要求兼容 Chat Completions JSON 模式。保存后可用单条标题测试。API Key 留空保留、勾选清除删除；修改地址时需重新输入 Key。配置及 Key 存于应用数据库，备份应按凭据保管，页面和读取 API 不回显 Key。
+
+大模型仅接收资源标题；不使用网站代理，不自动重试或回退正则。单次请求上限 30 秒，每次 RSS 预览或单个订阅扫描上限 20 次新请求和 60 秒；成功结果缓存 1 小时，更改配置后重新解析。未识别、不确定或超限资源保留待确认，后续预览/扫描可继续处理。切换方式不修改已有下载任务。
+
+RSS 预览后可按刮削名称搜索 Bangumi 并选择条目，也可直接填写条目 ID；蜜柑已有的 Bangumi ID 会带入订阅。关联后展示封面、简介、放送日期、集数和评分；查询失败不影响 RSS 预览、保存或下载。Bangumi API 和封面使用 `WEBSITE_PROXY_URL` / `WEBSITE_DIRECT_HOSTS`，API 默认 `BANGUMI_BASE_URL=https://api.bgm.tv`。不写入 NFO、不提供播放。
+
+接口依据：[OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)、[JSON 模式](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat)、[Bangumi API](https://github.com/bangumi/api/blob/master/open-api/v0.yaml)。

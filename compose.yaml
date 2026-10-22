@@ -19,6 +19,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/ani.db}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
       RUST_LOG: ${RUST_LOG:-info}
+      BANGUMI_BASE_URL: ${BANGUMI_BASE_URL:-https://api.bgm.tv}
       MIKAN_BASE_URL: ${MIKAN_BASE_URL:-https://mikanani.me}
       WEBSITE_PROXY_URL: ${WEBSITE_PROXY_URL:-}
       WEBSITE_DIRECT_HOSTS: ${WEBSITE_DIRECT_HOSTS:-}

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Shared wire fixture for the business contracts in pipeline.rs.
+// Shared wire fixture for the pipeline business contracts.
 use super::*;
 pub(super) async fn configured_service(
     store: Store,

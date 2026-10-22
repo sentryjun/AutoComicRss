@@ -14,7 +14,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CADDY = os.environ.get('CADDY_BIN', 'caddy')
 CLIENT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
