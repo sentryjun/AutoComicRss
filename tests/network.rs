@@ -52,6 +52,7 @@ async fn direct_exceptions_are_explicit_and_proxy_failure_never_falls_back() {
     for (direct_hosts, status) in [("127.0.0.1", 200), ("", 502)] {
         let config = Config {
             database_url: "sqlite::memory:".into(),
+            host: "127.0.0.1".parse().unwrap(),
             port: 8080,
             poll_interval: Duration::from_secs(300),
             qbit: None,
@@ -104,6 +105,7 @@ async fn website_proxy_handles_auth_redirects_and_rss_while_downloader_stays_dir
     proxy_url.set_password(Some("pass")).unwrap();
     let config = Config {
         database_url: "sqlite::memory:".into(),
+        host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
         mikan_base_url: "http://mikan.invalid".into(),

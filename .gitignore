@@ -56,6 +56,7 @@ desktop.ini
 # Local state and credentials
 /data/
 .env
+/deploy/backups/
 *.db
 *.db-shm
 *.db-wal

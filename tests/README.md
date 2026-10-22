@@ -62,3 +62,19 @@ NODE_PATH=/tmp/autocomic-ui-tools/node_modules node tests/ui.cjs
 如已有 Chromium，可通过 `AUTOCOMIC_CHROMIUM` 指定其可执行文件。测试启动真实 Rust HTTP 服务、临时 SQLite 和目录，模拟外部蜜柑网站及 qBittorrent；使用随机回环端口，不访问真实网站、下载器或 NAS。结束后关闭服务并删除临时数据库，桌面和手机截图保存在系统临时目录。
 
 覆盖搜索→字幕组→规则预览→保存、默认暂停且不入队、编辑后重新预览、订阅启停、下载器/本地/SMB 表单、路径映射前置条件、目录浏览、文件存在/缺失/不可访问、切换后旧任务归属保留、密码不回显、错误恢复、不可信标题作为文本、异步弹窗隔离、手机布局及 Escape 焦点恢复。SMB 在此只验证表单和持久化，其协议另由上述 SMB 测试覆盖。
+
+## 容器与部署
+
+```sh
+cargo build --locked
+python3 tests/deployment_config.py
+python3 tests/deployment_proxy.py
+docker build -t autocomic-rss:smoke .
+python3 tests/container_smoke.py autocomic-rss:smoke
+```
+
+配置测试使用 Docker Compose，无需 daemon，覆盖八种组合、HTTPS 模式移除后端端口、只读挂载、MySQL 启动顺序、密码哈希插值及缺少认证参数时拒绝启动。可设置 `COMPOSE_BIN` 为独立 Compose 可执行文件。
+
+代理测试需要 Caddy（可通过 `CADDY_BIN` 指定），启动真实 Rust 与 Caddy 回环 HTTP 服务，验证全站认证、跨站写入拒绝、凭据不转发、停机与 SQLite 恢复。它不申请公网证书或修改系统信任库。
+
+镜像测试需要运行中的 Docker，检查新建/重建/恢复、健康检查、非 root、只读媒体与持久卷，并清理自身随机命名资源。本轮本机没有 Docker daemon，此项尚未执行；Compose 2.39.4 和原生 Caddy 2.10.2 测试已通过。

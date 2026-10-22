@@ -1,0 +1,11 @@
+# Build context is an allowlist: never send local credentials, data or plans.
+**
+!Cargo.toml
+!Cargo.lock
+!LICENSE
+!src/
+!src/**
+!migrations/
+!migrations/**
+!web/
+!web/**

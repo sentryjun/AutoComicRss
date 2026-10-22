@@ -194,6 +194,7 @@ fn input(url: &str, enabled: bool) -> SubscriptionInput {
 fn config(url: &str) -> Config {
     Config {
         database_url: "sqlite::memory:".into(),
+        host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
         mikan_base_url: "https://mikanani.me".into(),

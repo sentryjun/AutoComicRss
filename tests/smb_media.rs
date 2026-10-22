@@ -14,6 +14,7 @@ use std::{
 fn config(database_url: String) -> Config {
     Config {
         database_url,
+        host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,

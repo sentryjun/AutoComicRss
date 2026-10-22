@@ -20,6 +20,11 @@ pub(crate) fn now() -> i64 {
 }
 
 impl Store {
+    pub async fn ping(&self) -> Result<()> {
+        let _: i64 = db_query!(self.pool, query_scalar, "SELECT 1"; []; fetch_one)?;
+        Ok(())
+    }
+
     pub async fn active_downloader_id(&self) -> Result<Option<String>> {
         Ok(
             db_query!(self.pool, query_scalar, "SELECT downloader_id FROM downloader_selection WHERE singleton = 1"; []; fetch_one)?,

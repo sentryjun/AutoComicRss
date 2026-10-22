@@ -7,7 +7,7 @@ use crate::{
     storage::Store,
 };
 use actix_web::{web, App, HttpServer};
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 pub async fn run(config: Config) -> std::io::Result<()> {
     if config.database_url.starts_with("sqlite:") {
@@ -22,18 +22,19 @@ pub async fn run(config: Config) -> std::io::Result<()> {
             .map_err(|error| std::io::Error::other(error.to_string()))?,
     );
     let app_service = service.clone();
+    let address = SocketAddr::new(config.host, config.port);
     let server = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(app_service.clone()))
             .app_data(web::JsonConfig::default().limit(32 * 1024))
             .configure(http::configure)
     })
-    .bind(("127.0.0.1", config.port))?;
+    .bind(address)?;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let background = tokio::spawn(worker(service, config.poll_interval, shutdown_rx));
 
-    tracing::info!(address = %format!("127.0.0.1:{}", config.port), "AutoComicRss started");
+    tracing::info!(%address, "AutoComicRss started");
 
     let result = server.run().await;
     let _ = shutdown_tx.send(true);

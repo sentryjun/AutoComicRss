@@ -22,3 +22,11 @@ pub(super) async fn health() -> HttpResponse {
     HttpResponse::Ok()
         .json(serde_json::json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")}))
 }
+
+pub(super) async fn ready(state: State) -> HttpResponse {
+    // Health checks must not wait for scans or contact websites/downloaders/media.
+    match tokio::time::timeout(std::time::Duration::from_secs(2), state.store.ping()).await {
+        Ok(Ok(())) => HttpResponse::Ok().json(serde_json::json!({"status": "ready"})),
+        _ => HttpResponse::ServiceUnavailable().json(serde_json::json!({"status": "unavailable"})),
+    }
+}

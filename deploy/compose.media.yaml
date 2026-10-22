@@ -1,0 +1,12 @@
+# Add to compose.yaml for a NAS/local directory. SMB needs no media mount.
+services:
+  app:
+    group_add:
+      - "${MEDIA_GID:-10001}"
+    volumes:
+      - type: bind
+        source: ${MEDIA_PATH:?Set MEDIA_PATH to an existing absolute media directory}
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false

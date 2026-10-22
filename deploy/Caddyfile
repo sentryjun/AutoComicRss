@@ -1,0 +1,19 @@
+{
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	@cross_origin {
+		method POST PUT PATCH DELETE
+		expression `({http.request.header.Origin} != "" && {http.request.header.Origin} != {scheme} + "://" + {hostport}) || {http.request.header.Sec-Fetch-Site} == "cross-site"`
+	}
+	route {
+		respond @cross_origin "Cross-origin writes are not allowed" 403
+		basic_auth {
+			{$ADMIN_USER:admin} {$ADMIN_PASSWORD_HASH}
+		}
+		reverse_proxy {$UPSTREAM:app:8080} {
+			header_up -Authorization
+		}
+	}
+}

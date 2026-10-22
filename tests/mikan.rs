@@ -223,6 +223,7 @@ async fn group_candidate_can_be_previewed_and_saved_disabled_without_downloading
 fn config(base: &str) -> Config {
     Config {
         database_url: "sqlite::memory:".into(),
+        host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,

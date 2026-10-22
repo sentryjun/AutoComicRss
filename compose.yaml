@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: autocomic-rss
+services:
+  app:
+    image: autocomic-rss:${IMAGE_TAG:-local}
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 2m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/ani.db}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
+      RUST_LOG: ${RUST_LOG:-info}
+      MIKAN_BASE_URL: ${MIKAN_BASE_URL:-https://mikanani.me}
+      WEBSITE_PROXY_URL: ${WEBSITE_PROXY_URL:-}
+      WEBSITE_DIRECT_HOSTS: ${WEBSITE_DIRECT_HOSTS:-}
+      QBIT_URL: ${QBIT_URL:-}
+      QBIT_USERNAME: ${QBIT_USERNAME:-}
+      QBIT_PASSWORD: ${QBIT_PASSWORD:-}
+      QBIT_SAVE_PATH: ${QBIT_SAVE_PATH:-/downloads}
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8080}:8080"
+    volumes:
+      - app_data:/app/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  app_data:

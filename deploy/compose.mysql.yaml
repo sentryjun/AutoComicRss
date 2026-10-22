@@ -1,0 +1,32 @@
+# Add only for a NEW MySQL deployment. Existing SQLite data needs offline migration.
+services:
+  app:
+    environment:
+      DATABASE_URL: mysql://autocomic:${MYSQL_PASSWORD:?Set a random hex MYSQL_PASSWORD}@mysql:3306/autocomic
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    stop_grace_period: 2m
+    environment:
+      MYSQL_DATABASE: autocomic
+      MYSQL_USER: autocomic
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set a random hex MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set a separate random MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1 -u autocomic autocomic -Nse "SELECT 1" >/dev/null']
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  mysql_data:

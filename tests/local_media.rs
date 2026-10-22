@@ -16,6 +16,7 @@ async fn directory_api_rejects_traversal_and_does_not_follow_links_outside_root(
     std::os::unix::fs::symlink(directory.join("outside"), root.join("escape")).unwrap();
     let config = Config {
         database_url: "sqlite::memory:".into(),
+        host: "127.0.0.1".parse().unwrap(),
         port: 8080,
         poll_interval: Duration::from_secs(300),
         qbit: None,

@@ -18,6 +18,7 @@ type State = web::Data<Arc<Service>>;
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.configure(ui::configure);
     cfg.route("/health", web::get().to(system::health));
+    cfg.route("/ready", web::get().to(system::ready));
     cfg.service(
         web::scope("/api")
             .route("/sources/mikan/search", web::get().to(mikan::mikan_search))

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use crate::error::{Error, Result};
-use std::{env, time::Duration};
+use std::{env, net::IpAddr, time::Duration};
 
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
+    pub host: IpAddr,
     pub port: u16,
     pub poll_interval: Duration,
     pub qbit: Option<QbitConfig>,
@@ -58,6 +59,10 @@ impl DownloaderConnection {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
+        let host = env::var("APP_HOST")
+            .unwrap_or_else(|_| "127.0.0.1".into())
+            .parse()
+            .map_err(|_| Error::Invalid("APP_HOST must be an IPv4 or IPv6 address".into()))?;
         let port = env::var("APP_PORT")
             .unwrap_or_else(|_| "8080".into())
             .parse()
@@ -90,6 +95,7 @@ impl Config {
             _ => None,
         };
         Ok(Self {
+            host,
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://data/ani.db".into()),
             port,
